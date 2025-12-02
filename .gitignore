@@ -44,6 +44,17 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+*.env
+
+# Configuration files with secrets
+config.local.py
+secrets.json
+
+# Setup scripts (may contain personal info)
+setup_*.sh
+*_SETUP.md
+*_TOKEN.md
+*_GITHUB.md
 
 # Temporary files
 *.tmp

@@ -157,9 +157,13 @@ The application provides REST API endpoints for programmatic access:
 ## Security Notes
 
 - This application runs on `0.0.0.0:5001` by default (port 5001 to avoid macOS AirPlay Receiver conflict), making it accessible from other machines on your network
-- Change the `SECRET_KEY` in `app.py` for production use
+- **IMPORTANT**: Set the `FLASK_SECRET_KEY` environment variable for production use:
+  ```bash
+  export FLASK_SECRET_KEY='your-secret-key-here'
+  ```
 - Consider adding authentication for production deployments
 - Be cautious when exposing this service on public networks
+- Never commit sensitive information like API keys, tokens, or passwords to the repository
 
 ## License
 

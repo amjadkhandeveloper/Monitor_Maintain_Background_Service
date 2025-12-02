@@ -12,7 +12,9 @@ from service_monitor import ServiceMonitor
 import logging
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
+# SECRET_KEY should be set via environment variable for security
+# Example: export FLASK_SECRET_KEY='your-secret-key-here'
+app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'change-this-in-production-use-env-variable')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
