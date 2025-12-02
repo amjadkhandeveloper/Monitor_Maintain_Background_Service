@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java JAR Service Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2em;
+        }
+
+        .folder-input-section {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .folder-input-group {
+            flex: 1;
+            display: flex;
+            gap: 10px;
+        }
+
+        .folder-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .folder-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+        }
+
+        .refresh-btn:hover {
+            background: #5568d3;
+        }
+
+        .refresh-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .set-folder-btn {
+            background: #28a745;
+            color: white;
+        }
+
+        .set-folder-btn:hover {
+            background: #218838;
+        }
+
+        .main-content {
+            display: flex;
+            gap: 20px;
+            height: calc(100vh - 250px);
+            min-height: 600px;
+        }
+
+        .left-sidebar {
+            width: 30%;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .right-content {
+            width: 70%;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .jar-list {
+            list-style: none;
+        }
+
+        .jar-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .jar-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+
+        .jar-item-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .jar-item-size {
+            font-size: 0.85em;
+            color: #666;
+        }
+
+        .no-jars {
+            text-align: center;
+            color: #666;
+            padding: 40px 20px;
+            font-style: italic;
+        }
+
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .service-card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .service-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .service-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .service-name {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+            word-break: break-all;
+        }
+
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .status-running {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-stopped {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-zombie {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .service-info {
+            margin-bottom: 15px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .info-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .info-value {
+            color: #333;
+            font-weight: bold;
+        }
+
+        .utilization-bar {
+            margin: 10px 0;
+        }
+
+        .bar-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .bar-container {
+            width: 100%;
+            height: 25px;
+            background: #e9ecef;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 12px;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .bar-cpu {
+            background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+        }
+
+        .bar-memory {
+            background: linear-gradient(90deg, #fa709a 0%, #fee140 100%);
+        }
+
+        .bar-high {
+            background: linear-gradient(90deg, #ff6b6b 0%, #ee5a6f 100%);
+        }
+
+        .service-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn-stop {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-stop:hover {
+            background: #c82333;
+        }
+
+        .btn-start {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-start:hover {
+            background: #218838;
+        }
+
+        .btn-restart {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .btn-restart:hover {
+            background: #e0a800;
+        }
+
+        .btn-details {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-details:hover {
+            background: #138496;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .no-services {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            text-align: center;
+            color: #666;
+            font-size: 1.2em;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 1.2em;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            overflow: auto;
+        }
+
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 800px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .modal-header h2 {
+            color: #333;
+        }
+
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: #000;
+        }
+
+        .detail-section {
+            margin-bottom: 20px;
+        }
+
+        .detail-section h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .detail-item {
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .detail-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .detail-value {
+            font-size: 1.1em;
+            color: #333;
+            font-weight: bold;
+        }
+
+        .auto-restart-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        .auto-restart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .auto-restart-label {
+            font-weight: bold;
+            color: #333;
+            font-size: 0.95em;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #28a745;
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+        }
+
+        .cpu-threshold-input {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-top: 8px;
+        }
+
+        .cpu-threshold-input input {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .cpu-threshold-input button {
+            padding: 6px 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+
+        .cpu-threshold-input button:hover {
+            background: #5568d3;
+        }
+
+        .auto-restart-status {
+            font-size: 0.85em;
+            margin-top: 5px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+
+        .auto-restart-active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .auto-restart-restarting {
+            background: #fff3cd;
+            color: #856404;
+            font-weight: bold;
+        }
+
+        .auto-restart-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <h1>🔍 Java JAR Service Monitor</h1>
+                <button class="btn refresh-btn" onclick="loadServices()" id="refreshBtn">
+                    🔄 Refresh
+                </button>
+            </div>
+            <div class="folder-input-section">
+                <label style="font-weight: bold; color: #333; min-width: 150px;">JAR Folder Path:</label>
+                <div class="folder-input-group">
+                    <input type="text" 
+                           id="folderPathInput" 
+                           class="folder-input" 
+                           placeholder="Enter path to folder containing JAR files (e.g., /path/to/jars or C:\path\to\jars)"
+                           onkeypress="if(event.key === 'Enter') setFolderPath()">
+                    <button class="btn set-folder-btn" onclick="setFolderPath()">
+                        Set Folder
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="messageContainer"></div>
+
+        <div class="main-content">
+            <div class="left-sidebar">
+                <div class="sidebar-header">📦 Available JAR Files</div>
+                <div id="jarListContainer" class="no-jars">Please set folder path to view JAR files</div>
+            </div>
+
+            <div class="right-content">
+                <div id="servicesContainer" class="loading">Loading services...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Modal -->
+    <div id="detailsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Service Details</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        let refreshInterval;
+        let currentFolderPath = null;
+        let jarNameMap = {}; // Map PID to jar_name for restart functionality
+
+        // Load services on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadServices();
+            // Auto-refresh every 5 seconds
+            refreshInterval = setInterval(() => {
+                loadServices();
+                if (currentFolderPath) {
+                    loadJarFiles();
+                }
+            }, 5000);
+        });
+
+        function showMessage(message, type) {
+            const container = document.getElementById('messageContainer');
+            const className = type === 'error' ? 'error' : 'success';
+            container.innerHTML = `<div class="${className}">${message}</div>`;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+
+        async function setFolderPath() {
+            const folderInput = document.getElementById('folderPathInput');
+            const folderPath = folderInput.value.trim();
+            
+            if (!folderPath) {
+                showMessage('Please enter a folder path', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/folder/set', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ folder_path: folderPath })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentFolderPath = folderPath;
+                    showMessage('Folder path set successfully', 'success');
+                    loadJarFiles();
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function loadJarFiles() {
+            const container = document.getElementById('jarListContainer');
+            
+            if (!currentFolderPath) {
+                container.innerHTML = '<div class="no-jars">Please set folder path to view JAR files</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/folder/jars?folder_path=${encodeURIComponent(currentFolderPath)}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayJarFiles(data.jar_files);
+                } else {
+                    container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error loading JAR files: ${error.message}</div>`;
+            }
+        }
+
+        function displayJarFiles(jarFiles) {
+            const container = document.getElementById('jarListContainer');
+            
+            if (jarFiles.length === 0) {
+                container.innerHTML = '<div class="no-jars">No JAR files found in this folder</div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <ul class="jar-list">
+                    ${jarFiles.map(jar => `
+                        <li class="jar-item" onclick="startJarService('${jar.name}')">
+                            <div class="jar-item-name">${escapeHtml(jar.name)}</div>
+                            <div class="jar-item-size">${jar.size_mb} MB</div>
+                        </li>
+                    `).join('')}
+                </ul>
+            `;
+        }
+
+        async function startJarService(jarName) {
+            if (!currentFolderPath) {
+                showMessage('Please set folder path first', 'error');
+                return;
+            }
+
+            // Handle path separator for different OS
+            const separator = currentFolderPath.includes('\\') ? '\\' : '/';
+            const jarPath = currentFolderPath + (currentFolderPath.endsWith('/') || currentFolderPath.endsWith('\\') ? '' : separator) + jarName;
+            
+            try {
+                const response = await fetch('/api/service/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ jar_path: jarPath })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage(`Service started successfully (PID: ${data.pid})`, 'success');
+                    setTimeout(loadServices, 1000);
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function loadServices() {
+            const container = document.getElementById('servicesContainer');
+            const refreshBtn = document.getElementById('refreshBtn');
+            
+            refreshBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/services');
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayServices(data.services);
+                } else {
+                    container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error loading services: ${error.message}</div>`;
+            } finally {
+                refreshBtn.disabled = false;
+            }
+        }
+
+        function displayServices(services) {
+            const container = document.getElementById('servicesContainer');
+            
+            if (services.length === 0) {
+                container.innerHTML = '<div class="no-services">No Java JAR services are currently running.</div>';
+                return;
+            }
+
+            // Store jar_name mapping for restart
+            services.forEach(service => {
+                jarNameMap[service.pid] = service.jar_name;
+            });
+
+            container.className = 'services-grid';
+            container.innerHTML = services.map(service => createServiceCard(service)).join('');
+        }
+
+        function createServiceCard(service) {
+            const statusClass = service.status === 'running' ? 'status-running' : 
+                               service.status === 'zombie' ? 'status-zombie' : 'status-stopped';
+            const cpuBarClass = service.cpu_percent > 80 ? 'bar-high' : 'bar-cpu';
+            const memoryBarClass = service.memory_mb > 1000 ? 'bar-high' : 'bar-memory';
+            
+            const autoRestart = service.auto_restart || { enabled: false, cpu_threshold: 80.0, restarting: false };
+            const autoRestartEnabled = autoRestart.enabled;
+            const cpuThreshold = autoRestart.cpu_threshold || 80.0;
+            const isRestarting = autoRestart.restarting || false;
+            
+            let autoRestartStatusClass = 'auto-restart-inactive';
+            let autoRestartStatusText = 'Auto-restart: Disabled';
+            if (isRestarting) {
+                autoRestartStatusClass = 'auto-restart-restarting';
+                autoRestartStatusText = '🔄 Auto-restarting... (2 min delay)';
+            } else if (autoRestartEnabled) {
+                autoRestartStatusClass = 'auto-restart-active';
+                autoRestartStatusText = `✅ Auto-restart: Enabled (CPU > ${cpuThreshold}%)`;
+            }
+
+            return `
+                <div class="service-card">
+                    <div class="service-header">
+                        <div class="service-name">${escapeHtml(service.jar_name)}</div>
+                        <span class="status-badge ${statusClass}">${service.status.toUpperCase()}</span>
+                    </div>
+                    
+                    <div class="service-info">
+                        <div class="info-row">
+                            <span class="info-label">PID:</span>
+                            <span class="info-value">${service.pid}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Uptime:</span>
+                            <span class="info-value">${service.uptime_formatted}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Started:</span>
+                            <span class="info-value">${service.start_time}</span>
+                        </div>
+                    </div>
+
+                    <div class="utilization-bar">
+                        <div class="bar-label">
+                            <span>CPU Usage</span>
+                            <span>${service.cpu_percent}%</span>
+                        </div>
+                        <div class="bar-container">
+                            <div class="bar-fill ${cpuBarClass}" style="width: ${Math.min(service.cpu_percent, 100)}%">
+                                ${service.cpu_percent > 5 ? service.cpu_percent + '%' : ''}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="utilization-bar">
+                        <div class="bar-label">
+                            <span>Memory Usage</span>
+                            <span>${service.memory_mb} MB</span>
+                        </div>
+                        <div class="bar-container">
+                            <div class="bar-fill ${memoryBarClass}" style="width: ${Math.min((service.memory_mb / 2000) * 100, 100)}%">
+                                ${service.memory_mb > 50 ? service.memory_mb + ' MB' : ''}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="auto-restart-section">
+                        <div class="auto-restart-header">
+                            <span class="auto-restart-label">Auto-Restart:</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" 
+                                       ${autoRestartEnabled ? 'checked' : ''} 
+                                       ${service.status !== 'running' || isRestarting ? 'disabled' : ''}
+                                       onchange="toggleAutoRestart(${service.pid}, '${escapeHtml(service.jar_name)}', this.checked)">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        ${autoRestartEnabled && service.status === 'running' && !isRestarting ? `
+                            <div class="cpu-threshold-input">
+                                <input type="number" 
+                                       id="cpuThreshold_${service.pid}" 
+                                       value="${cpuThreshold}" 
+                                       min="0" 
+                                       max="100" 
+                                       step="1"
+                                       placeholder="CPU %">
+                                <button onclick="setCpuThreshold(${service.pid}, '${escapeHtml(service.jar_name)}')">Set</button>
+                            </div>
+                        ` : ''}
+                        <div class="auto-restart-status ${autoRestartStatusClass}">
+                            ${autoRestartStatusText}
+                        </div>
+                    </div>
+
+                    <div class="service-actions">
+                        <button class="btn btn-details" onclick="showDetails(${service.pid})">
+                            Details
+                        </button>
+                        <button class="btn btn-restart" onclick="restartService(${service.pid}, '${escapeHtml(service.jar_name)}')" 
+                                ${service.status !== 'running' || isRestarting ? 'disabled' : ''}>
+                            Restart
+                        </button>
+                        <button class="btn btn-stop" onclick="stopService(${service.pid})" 
+                                ${service.status !== 'running' || isRestarting ? 'disabled' : ''}>
+                            Stop
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function showDetails(pid) {
+            try {
+                const response = await fetch(`/api/service/${pid}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayDetails(data.service);
+                    document.getElementById('detailsModal').style.display = 'block';
+                } else {
+                    showMessage('Error loading details: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+            }
+        }
+
+        function displayDetails(service) {
+            const modalBody = document.getElementById('modalBody');
+            modalBody.innerHTML = `
+                <div class="detail-section">
+                    <h3>Basic Information</h3>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">JAR Name</div>
+                            <div class="detail-value">${escapeHtml(service.jar_name)}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">PID</div>
+                            <div class="detail-value">${service.pid}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Status</div>
+                            <div class="detail-value">${service.status}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Username</div>
+                            <div class="detail-value">${escapeHtml(service.username)}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Resource Utilization</h3>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">CPU Usage</div>
+                            <div class="detail-value">${service.cpu_percent}%</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Memory Usage</div>
+                            <div class="detail-value">${service.memory_mb} MB (${service.memory_percent}%)</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Threads</div>
+                            <div class="detail-value">${service.num_threads}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Open Files</div>
+                            <div class="detail-value">${service.num_open_files}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Network Connections</div>
+                            <div class="detail-value">${service.num_connections}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Runtime Information</h3>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">Start Time</div>
+                            <div class="detail-value">${service.start_time}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Uptime</div>
+                            <div class="detail-value">${service.uptime_formatted}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>JAR Path</h3>
+                    <div class="detail-item">
+                        <div class="detail-value" style="word-break: break-all; font-size: 0.9em;">
+                            ${escapeHtml(service.jar_path)}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Command Line</h3>
+                    <div class="detail-item">
+                        <div class="detail-value" style="word-break: break-all; font-size: 0.85em; font-family: monospace;">
+                            ${escapeHtml(service.cmdline)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function closeModal() {
+            document.getElementById('detailsModal').style.display = 'none';
+        }
+
+        window.onclick = function(event) {
+            const modal = document.getElementById('detailsModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+
+        async function stopService(pid) {
+            if (!confirm(`Are you sure you want to stop service with PID ${pid}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/service/${pid}/stop`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    setTimeout(loadServices, 1000);
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function restartService(pid, jarName) {
+            if (!confirm(`Are you sure you want to restart service with PID ${pid}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/service/${pid}/restart`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ jar_name: jarName })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    setTimeout(loadServices, 2000);
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function toggleAutoRestart(pid, jarName, enabled) {
+            try {
+                const response = await fetch(`/api/service/${pid}/auto-restart`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        enabled: enabled,
+                        cpu_threshold: 80.0,
+                        jar_name: jarName
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    setTimeout(loadServices, 500);
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                    // Reload to reset toggle state
+                    setTimeout(loadServices, 500);
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+                setTimeout(loadServices, 500);
+            }
+        }
+
+        async function setCpuThreshold(pid, jarName) {
+            const input = document.getElementById(`cpuThreshold_${pid}`);
+            const threshold = parseFloat(input.value);
+            
+            if (isNaN(threshold) || threshold < 0 || threshold > 100) {
+                showMessage('CPU threshold must be between 0 and 100', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/service/${pid}/auto-restart`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        enabled: true,
+                        cpu_threshold: threshold,
+                        jar_name: jarName
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage(`CPU threshold set to ${threshold}%`, 'success');
+                    setTimeout(loadServices, 500);
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
