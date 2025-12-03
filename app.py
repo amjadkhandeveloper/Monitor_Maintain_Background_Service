@@ -286,6 +286,39 @@ def start_service_direct():
         }), 500
 
 
+@app.route('/api/folder/get', methods=['GET'])
+def get_folder_path():
+    """Get the current folder path"""
+    global jar_folder_path
+    try:
+        # Try to get from memory first, then from persistent storage
+        if jar_folder_path:
+            return jsonify({
+                'success': True,
+                'folder_path': jar_folder_path
+            })
+        
+        # Load from persistent storage
+        saved_path = get_folder_path()
+        if saved_path:
+            jar_folder_path = saved_path
+            return jsonify({
+                'success': True,
+                'folder_path': saved_path
+            })
+        
+        return jsonify({
+            'success': True,
+            'folder_path': None
+        })
+    except Exception as e:
+        logger.error(f"Error getting folder path: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/api/folder/set', methods=['POST'])
 def set_folder_path():
     """Set the folder path where JAR files are located"""

@@ -731,8 +731,11 @@
         const QUEUE_THRESHOLD_MIN = CONFIG.queue_threshold_min;
         const QUEUE_THRESHOLD_MAX = CONFIG.queue_threshold_max;
 
-        // Load services on page load
-        document.addEventListener('DOMContentLoaded', function() {
+        // Load saved folder path and services on page load
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Load saved folder path first
+            await loadSavedFolderPath();
+            // Then load services
             loadServices();
             // Auto-refresh every 20 seconds (only if user is not editing)
             refreshInterval = setInterval(() => {
@@ -744,6 +747,26 @@
                 }
             }, REFRESH_INTERVAL);
         });
+
+        async function loadSavedFolderPath() {
+            try {
+                const response = await fetch('/api/folder/get');
+                const data = await response.json();
+                
+                if (data.success && data.folder_path) {
+                    // Set the input field value
+                    const folderInput = document.getElementById('folderPathInput');
+                    if (folderInput) {
+                        folderInput.value = data.folder_path;
+                        currentFolderPath = data.folder_path;
+                        // Automatically load the jar files
+                        loadJarFiles();
+                    }
+                }
+            } catch (error) {
+                console.log('Could not load saved folder path:', error);
+            }
+        }
 
         function showMessage(message, type) {
             const container = document.getElementById('messageContainer');
