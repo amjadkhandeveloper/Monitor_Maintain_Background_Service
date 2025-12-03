@@ -280,6 +280,13 @@
         .utilization-bar {
             margin: 10px 0;
         }
+        
+        .queue-info {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 5px;
+            padding-left: 5px;
+        }
 
         .bar-label {
             display: flex;
@@ -692,7 +699,16 @@
         let currentFolderPath = null;
         let jarNameMap = {}; // Map PID to jar_name for restart functionality
         let isUserEditing = false; // Flag to pause auto-refresh when user is editing
-        const REFRESH_INTERVAL = 20000; // 20 seconds (increased from 5 seconds)
+        const REFRESH_INTERVAL = {{ refresh_interval_ms }}; // Dashboard refresh interval in milliseconds
+        const DEFAULT_CPU_THRESHOLD = {{ default_cpu_threshold }};
+        const DEFAULT_MEMORY_THRESHOLD_MB = {{ default_memory_threshold_mb }};
+        const DEFAULT_QUEUE_THRESHOLD = {{ default_queue_threshold }};
+        const CPU_THRESHOLD_MIN = {{ cpu_threshold_min }};
+        const CPU_THRESHOLD_MAX = {{ cpu_threshold_max }};
+        const MEMORY_THRESHOLD_MIN_MB = {{ memory_threshold_min_mb }};
+        const MEMORY_THRESHOLD_MAX_MB = {{ memory_threshold_max_mb }};
+        const QUEUE_THRESHOLD_MIN = {{ queue_threshold_min }};
+        const QUEUE_THRESHOLD_MAX = {{ queue_threshold_max }};
 
         // Load services on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -884,12 +900,18 @@
             const cpuBarClass = service.cpu_percent > 80 ? 'bar-high' : 'bar-cpu';
             const memoryBarClass = service.memory_mb > 1000 ? 'bar-high' : 'bar-memory';
             
-            const autoRestart = service.auto_restart || { enabled: false, cpu_threshold: 80.0, memory_threshold_mb: 1000.0, restarting: false };
+            const autoRestart = service.auto_restart || { enabled: false, cpu_threshold: DEFAULT_CPU_THRESHOLD, memory_threshold_mb: DEFAULT_MEMORY_THRESHOLD_MB, queue_threshold: DEFAULT_QUEUE_THRESHOLD, restarting: false };
             const autoRestartEnabled = autoRestart.enabled;
             // Use actual values from config, don't default if they exist (even if 0 or low values)
-            const cpuThreshold = autoRestart.cpu_threshold !== undefined ? autoRestart.cpu_threshold : 80.0;
-            const memoryThresholdMb = autoRestart.memory_threshold_mb !== undefined ? autoRestart.memory_threshold_mb : 1000.0;
+            const cpuThreshold = autoRestart.cpu_threshold !== undefined ? autoRestart.cpu_threshold : DEFAULT_CPU_THRESHOLD;
+            const memoryThresholdMb = autoRestart.memory_threshold_mb !== undefined ? autoRestart.memory_threshold_mb : DEFAULT_MEMORY_THRESHOLD_MB;
+            const queueThreshold = autoRestart.queue_threshold !== undefined ? autoRestart.queue_threshold : DEFAULT_QUEUE_THRESHOLD;
             const isRestarting = autoRestart.restarting || false;
+            
+            // Get MSMQ queue information
+            const msmqQueue = service.msmq_queue || null;
+            const queueMessageCount = msmqQueue ? msmqQueue.message_count : null;
+            const queueName = msmqQueue ? msmqQueue.queue_name : null;
             
             let autoRestartStatusClass = 'auto-restart-inactive';
             let autoRestartStatusText = 'Auto-restart: Disabled';
@@ -898,7 +920,22 @@
                 autoRestartStatusText = '🔄 Auto-restarting... (2 min delay)';
             } else if (autoRestartEnabled) {
                 autoRestartStatusClass = 'auto-restart-active';
-                autoRestartStatusText = `✅ Auto-restart: Enabled (CPU > ${cpuThreshold}% OR Memory > ${memoryThresholdMb} MB)`;
+                let conditions = [];
+                conditions.push(`CPU > ${cpuThreshold}%`);
+                conditions.push(`Memory > ${memoryThresholdMb} MB`);
+                if (queueMessageCount !== null) {
+                    conditions.push(`Queue > ${queueThreshold.toLocaleString()} msgs`);
+                }
+                autoRestartStatusText = `✅ Auto-restart: Enabled (${conditions.join(' OR ')})`;
+            }
+            
+            // Add queue monitoring status (independent of CPU/Memory auto-restart)
+            if (queueMessageCount !== null && !isRestarting) {
+                if (queueMessageCount >= queueThreshold) {
+                    autoRestartStatusText += ` | ⚠️ Queue monitoring: ACTIVE (${queueMessageCount.toLocaleString()} >= ${queueThreshold.toLocaleString()} msgs)`;
+                } else {
+                    autoRestartStatusText += ` | 📊 Queue monitoring: Active (threshold: ${queueThreshold.toLocaleString()} msgs)`;
+                }
             }
 
             return `
@@ -947,6 +984,41 @@
                         </div>
                     </div>
 
+                    ${queueMessageCount !== null ? `
+                    <div class="utilization-bar">
+                        <div class="bar-label">
+                            <span>MSMQ Queue Messages</span>
+                            <span>${queueMessageCount.toLocaleString()} messages</span>
+                        </div>
+                        <div class="bar-container">
+                            <div class="bar-fill ${queueMessageCount >= queueThreshold ? 'bar-high' : queueMessageCount >= queueThreshold * 0.8 ? 'bar-medium' : 'bar-low'}" 
+                                 style="width: ${Math.min((queueMessageCount / Math.max(queueThreshold, 1)) * 100, 100)}%">
+                                ${queueMessageCount > 0 ? queueMessageCount.toLocaleString() + ' msgs' : ''}
+                            </div>
+                        </div>
+                        ${queueName ? `<div class="queue-info">Queue: ${escapeHtml(queueName)}</div>` : ''}
+                        ${service.status === 'running' && !isRestarting ? `
+                        <div class="queue-threshold-config" style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
+                            <label style="font-size: 0.85em;">Queue Threshold:</label>
+                            <input type="number" 
+                                   id="queueThresholdOnly_${service.pid}" 
+                                   value="${queueThreshold}" 
+                                   min="${QUEUE_THRESHOLD_MIN}" 
+                                   max="${QUEUE_THRESHOLD_MAX}" 
+                                   step="100"
+                                   placeholder="Queue Messages"
+                                   style="flex: 1; padding: 4px 8px; border: 1px solid #ddd; border-radius: 3px; font-size: 0.85em;"
+                                   onfocus="pauseAutoRefresh()"
+                                   onblur="resumeAutoRefresh()">
+                            <button onclick="setQueueThreshold(${service.pid}, '${escapeHtml(service.jar_name)}')" 
+                                    style="padding: 4px 12px; background: #667eea; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 0.85em;">
+                                Set
+                            </button>
+                        </div>
+                        ` : ''}
+                    </div>
+                    ` : ''}
+
                     <div class="auto-restart-section">
                         <div class="auto-restart-header">
                             <span class="auto-restart-label">Auto-Restart:</span>
@@ -965,8 +1037,8 @@
                                     <input type="number" 
                                            id="cpuThreshold_${service.pid}" 
                                            value="${cpuThreshold}" 
-                                           min="1" 
-                                           max="100" 
+                                           min="${CPU_THRESHOLD_MIN}" 
+                                           max="${CPU_THRESHOLD_MAX}" 
                                            step="1"
                                            placeholder="CPU %"
                                            onfocus="pauseAutoRefresh()"
@@ -975,12 +1047,24 @@
                                     <input type="number" 
                                            id="memoryThreshold_${service.pid}" 
                                            value="${memoryThresholdMb}" 
-                                           min="1" 
-                                           max="10240" 
+                                           min="${MEMORY_THRESHOLD_MIN_MB}" 
+                                           max="${MEMORY_THRESHOLD_MAX_MB}" 
                                            step="1"
                                            placeholder="Memory MB"
                                            onfocus="pauseAutoRefresh()"
                                            onblur="resumeAutoRefresh()">
+                                    ${queueMessageCount !== null ? `
+                                    <label>Queue Msgs:</label>
+                                    <input type="number" 
+                                           id="queueThreshold_${service.pid}" 
+                                           value="${queueThreshold}" 
+                                           min="${QUEUE_THRESHOLD_MIN}" 
+                                           max="${QUEUE_THRESHOLD_MAX}" 
+                                           step="100"
+                                           placeholder="Queue Messages"
+                                           onfocus="pauseAutoRefresh()"
+                                           onblur="resumeAutoRefresh()">
+                                    ` : ''}
                                     <button onclick="setThresholds(${service.pid}, '${escapeHtml(service.jar_name)}')">Set</button>
                                 </div>
                             </div>
@@ -1141,6 +1225,53 @@
             }
         }
 
+        async function setQueueThreshold(pid, jarName) {
+            pauseAutoRefresh();
+            
+            const queueInput = document.getElementById(`queueThresholdOnly_${pid}`);
+            
+            if (!queueInput) {
+                showMessage('Error: Could not find queue threshold input field', 'error');
+                resumeAutoRefresh();
+                return;
+            }
+            
+            const queueThreshold = parseFloat(queueInput.value);
+            
+            if (isNaN(queueThreshold) || queueThreshold < QUEUE_THRESHOLD_MIN || queueThreshold > QUEUE_THRESHOLD_MAX) {
+                showMessage(`Queue threshold must be between ${QUEUE_THRESHOLD_MIN} and ${QUEUE_THRESHOLD_MAX.toLocaleString()} messages`, 'error');
+                queueInput.focus();
+                resumeAutoRefresh();
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/service/${pid}/queue-threshold`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        queue_threshold: queueThreshold,
+                        jar_name: jarName
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    setTimeout(loadServices, 1000);
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+            } finally {
+                resumeAutoRefresh();
+            }
+        }
+
         async function restartService(pid, jarName) {
             if (!confirm(`Are you sure you want to restart service with PID ${pid}?`)) {
                 return;
@@ -1171,8 +1302,9 @@
             try {
                 // Get current config to preserve existing thresholds
                 // First try to get from current service data (from the last loadServices call)
-                let cpuThreshold = 80.0;
-                let memoryThreshold = 1000.0;
+                let cpuThreshold = DEFAULT_CPU_THRESHOLD;
+                let memoryThreshold = DEFAULT_MEMORY_THRESHOLD_MB;
+                let queueThreshold = DEFAULT_QUEUE_THRESHOLD;
                 
                 // Try to find the service in the current services list to get existing config
                 try {
@@ -1188,6 +1320,9 @@
                             if (existingConfig.memory_threshold_mb !== undefined) {
                                 memoryThreshold = existingConfig.memory_threshold_mb;
                             }
+                            if (existingConfig.queue_threshold !== undefined) {
+                                queueThreshold = existingConfig.queue_threshold;
+                            }
                         }
                     }
                 } catch (e) {
@@ -1198,17 +1333,24 @@
                     // Try to get existing thresholds from the UI inputs (user might have changed them)
                     const cpuInput = document.getElementById(`cpuThreshold_${pid}`);
                     const memoryInput = document.getElementById(`memoryThreshold_${pid}`);
+                    const queueInput = document.getElementById(`queueThreshold_${pid}`);
                     
                     if (cpuInput && cpuInput.value) {
                         const inputValue = parseFloat(cpuInput.value);
-                        if (!isNaN(inputValue) && inputValue >= 1 && inputValue <= 100) {
+                        if (!isNaN(inputValue) && inputValue >= CPU_THRESHOLD_MIN && inputValue <= CPU_THRESHOLD_MAX) {
                             cpuThreshold = inputValue;
                         }
                     }
                     if (memoryInput && memoryInput.value) {
                         const inputValue = parseFloat(memoryInput.value);
-                        if (!isNaN(inputValue) && inputValue >= 1 && inputValue <= 10240) {
+                        if (!isNaN(inputValue) && inputValue >= MEMORY_THRESHOLD_MIN_MB && inputValue <= MEMORY_THRESHOLD_MAX_MB) {
                             memoryThreshold = inputValue;
+                        }
+                    }
+                    if (queueInput && queueInput.value) {
+                        const inputValue = parseFloat(queueInput.value);
+                        if (!isNaN(inputValue) && inputValue >= QUEUE_THRESHOLD_MIN && inputValue <= QUEUE_THRESHOLD_MAX) {
+                            queueThreshold = inputValue;
                         }
                     }
                 }
@@ -1222,6 +1364,7 @@
                         enabled: enabled,
                         cpu_threshold: cpuThreshold,
                         memory_threshold_mb: memoryThreshold,
+                        queue_threshold: queueThreshold,
                         jar_name: jarName
                     })
                 });
@@ -1261,6 +1404,7 @@
             
             const cpuInput = document.getElementById(`cpuThreshold_${pid}`);
             const memoryInput = document.getElementById(`memoryThreshold_${pid}`);
+            const queueInput = document.getElementById(`queueThreshold_${pid}`);
             
             if (!cpuInput || !memoryInput) {
                 showMessage('Error: Could not find threshold input fields', 'error');
@@ -1271,17 +1415,25 @@
             
             const cpuThreshold = parseFloat(cpuInput.value);
             const memoryThreshold = parseFloat(memoryInput.value);
+            const queueThreshold = queueInput ? parseFloat(queueInput.value) : null;
             
-            if (isNaN(cpuThreshold) || cpuThreshold < 1 || cpuThreshold > 100) {
-                showMessage('CPU threshold must be between 1 and 100', 'error');
+            if (isNaN(cpuThreshold) || cpuThreshold < CPU_THRESHOLD_MIN || cpuThreshold > CPU_THRESHOLD_MAX) {
+                showMessage(`CPU threshold must be between ${CPU_THRESHOLD_MIN} and ${CPU_THRESHOLD_MAX}`, 'error');
                 cpuInput.focus();
                 resumeAutoRefresh();
                 return;
             }
 
-            if (isNaN(memoryThreshold) || memoryThreshold < 1 || memoryThreshold > 10240) {
-                showMessage('Memory threshold must be between 1 MB and 10240 MB (10 GB)', 'error');
+            if (isNaN(memoryThreshold) || memoryThreshold < MEMORY_THRESHOLD_MIN_MB || memoryThreshold > MEMORY_THRESHOLD_MAX_MB) {
+                showMessage(`Memory threshold must be between ${MEMORY_THRESHOLD_MIN_MB} MB and ${MEMORY_THRESHOLD_MAX_MB} MB (10 GB)`, 'error');
                 memoryInput.focus();
+                resumeAutoRefresh();
+                return;
+            }
+            
+            if (queueInput && (isNaN(queueThreshold) || queueThreshold < QUEUE_THRESHOLD_MIN || queueThreshold > QUEUE_THRESHOLD_MAX)) {
+                showMessage(`Queue threshold must be between ${QUEUE_THRESHOLD_MIN} and ${QUEUE_THRESHOLD_MAX.toLocaleString()} messages`, 'error');
+                queueInput.focus();
                 resumeAutoRefresh();
                 return;
             }
@@ -1291,6 +1443,7 @@
                     enabled: true,
                     cpu_threshold: cpuThreshold,
                     memory_threshold_mb: memoryThreshold,
+                    queue_threshold: queueThreshold || DEFAULT_QUEUE_THRESHOLD,
                     jar_name: jarName
                 };
                 

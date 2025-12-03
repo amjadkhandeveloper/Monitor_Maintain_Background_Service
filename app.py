@@ -9,12 +9,23 @@ import os
 import threading
 import time
 from service_monitor import ServiceMonitor
+from msmq_monitor import MSMQMonitor
 from config_storage import (
     load_config, save_config, get_auto_restart_config_by_name,
     save_auto_restart_config, delete_auto_restart_config,
     get_folder_path, save_folder_path
 )
+from constants import (
+    DEFAULT_PORT, DEFAULT_CPU_THRESHOLD, DEFAULT_MEMORY_THRESHOLD_MB,
+    DEFAULT_QUEUE_THRESHOLD, CPU_THRESHOLD_MIN, CPU_THRESHOLD_MAX,
+    MEMORY_THRESHOLD_MIN_MB, MEMORY_THRESHOLD_MAX_MB,
+    QUEUE_THRESHOLD_MIN, QUEUE_THRESHOLD_MAX,
+    AUTO_RESTART_CHECK_INTERVAL, AUTO_RESTART_ERROR_RETRY_INTERVAL,
+    RESTART_DELAY_CPU_MEMORY, RESTART_DELAY_QUEUE,
+    SUPPORTED_EXTENSIONS, DASHBOARD_REFRESH_INTERVAL_MS
+)
 import logging
+import platform
 
 app = Flask(__name__)
 # SECRET_KEY should be set via environment variable for security
@@ -27,6 +38,14 @@ logger = logging.getLogger(__name__)
 
 # Initialize service monitor
 monitor = ServiceMonitor()
+
+# Initialize MSMQ monitor (Windows only)
+msmq_monitor = MSMQMonitor()
+msmq_available = msmq_monitor.is_msmq_available()
+if msmq_available:
+    logger.info("MSMQ monitoring is available")
+else:
+    logger.info("MSMQ monitoring is not available (Windows-only feature)")
 
 # In-memory cache for auto-restart config (keyed by PID for active processes)
 # Persistent storage is in monitor_config.json (keyed by service_name)
@@ -44,22 +63,81 @@ logger.info(f"Loaded persistent config: {len(persistent_config.get('auto_restart
 @app.route('/')
 def index():
     """Main dashboard page"""
-    return render_template('dashboard.html')
+    # Pass constants to template
+    return render_template('dashboard.html',
+                         refresh_interval_ms=DASHBOARD_REFRESH_INTERVAL_MS,
+                         default_cpu_threshold=DEFAULT_CPU_THRESHOLD,
+                         default_memory_threshold_mb=DEFAULT_MEMORY_THRESHOLD_MB,
+                         default_queue_threshold=DEFAULT_QUEUE_THRESHOLD,
+                         cpu_threshold_min=CPU_THRESHOLD_MIN,
+                         cpu_threshold_max=CPU_THRESHOLD_MAX,
+                         memory_threshold_min_mb=MEMORY_THRESHOLD_MIN_MB,
+                         memory_threshold_max_mb=MEMORY_THRESHOLD_MAX_MB,
+                         queue_threshold_min=QUEUE_THRESHOLD_MIN,
+                         queue_threshold_max=QUEUE_THRESHOLD_MAX)
 
 
 @app.route('/api/services', methods=['GET'])
 def get_services():
     """Get list of all Java JAR services with their status and utilization"""
-    global auto_restart_config
+    global auto_restart_config, jar_folder_path
     try:
         services = monitor.get_all_services()
         
-        # Add auto-restart configuration to each service
+        # Get executable files from folder for MSMQ matching
+        executable_files = []
+        if jar_folder_path and os.path.isdir(jar_folder_path):
+            try:
+                system = platform.system()
+                supported_exts = {
+                    'Windows': ['.jar', '.exe', '.bat'],
+                    'Darwin': ['.jar', '.sh'],
+                    'Linux': ['.jar', '.sh']
+                }
+                extensions = supported_exts.get(system, ['.jar', '.exe', '.bat', '.sh'])
+                
+                for filename in os.listdir(jar_folder_path):
+                    file_ext = os.path.splitext(filename)[1].lower()
+                    if file_ext in extensions:
+                        file_path = os.path.join(jar_folder_path, filename)
+                        if os.path.isfile(file_path):
+                            executable_files.append(file_path)
+            except Exception as e:
+                logger.warning(f"Error getting executable files for MSMQ matching: {str(e)}")
+        
+        # Get MSMQ queue information (Windows only)
+        queues_info = {}
+        if msmq_available and platform.system() == 'Windows':
+            try:
+                all_queues = msmq_monitor.get_all_queues()
+                for queue in all_queues:
+                    queue_name = queue.get('Name', '')
+                    message_count = queue.get('MessageCount', 0)
+                    
+                    # Match queue to executable
+                    matched_exe = msmq_monitor.match_queue_to_executable(queue_name, executable_files)
+                    if matched_exe:
+                        exe_name = os.path.basename(matched_exe)
+                        queues_info[exe_name] = {
+                            'queue_name': queue_name,
+                            'message_count': message_count,
+                            'executable_path': matched_exe
+                        }
+            except Exception as e:
+                logger.error(f"Error getting MSMQ queues: {str(e)}")
+        
+        # Add auto-restart configuration and MSMQ info to each service
         # First check in-memory (by PID), then check persistent storage (by service name)
         with auto_restart_lock:
             for service in services:
                 pid = service['pid']
                 service_name = service.get('service_name') or service.get('jar_name', 'Unknown')
+                
+                # Add MSMQ queue information if available
+                if service_name in queues_info:
+                    service['msmq_queue'] = queues_info[service_name]
+                else:
+                    service['msmq_queue'] = None
                 
                 # Check in-memory config first (for active processes)
                 if pid in auto_restart_config:
@@ -77,14 +155,16 @@ def get_services():
                         # Default config
                         service['auto_restart'] = {
                             'enabled': False,
-                            'cpu_threshold': 80.0,
-                            'memory_threshold_mb': 1000.0,  # Default 1GB
+                            'cpu_threshold': DEFAULT_CPU_THRESHOLD,
+                            'memory_threshold_mb': DEFAULT_MEMORY_THRESHOLD_MB,
+                            'queue_threshold': DEFAULT_QUEUE_THRESHOLD,
                             'restarting': False
                         }
         
         return jsonify({
             'success': True,
-            'services': services
+            'services': services,
+            'msmq_available': msmq_available
         })
     except Exception as e:
         logger.error(f"Error getting services: {str(e)}")
@@ -266,12 +346,7 @@ def list_jar_files():
         
         # Get supported extensions for current OS
         system = platform.system()
-        supported_exts = {
-            'Windows': ['.jar', '.exe', '.bat'],
-            'Darwin': ['.jar', '.sh'],  # macOS
-            'Linux': ['.jar', '.sh']
-        }
-        extensions = supported_exts.get(system, ['.jar', '.exe', '.bat', '.sh'])
+        extensions = SUPPORTED_EXTENSIONS.get(system, ['.jar', '.exe', '.bat', '.sh'])
         
         executable_files = []
         try:
@@ -311,7 +386,7 @@ def list_jar_files():
         }), 500
 
 
-def restart_service_internal(pid, jar_name=None, delay_seconds=120):
+def restart_service_internal(pid, jar_name=None, delay_seconds=RESTART_DELAY_CPU_MEMORY):
     """Internal function to restart a service with configurable delay"""
     global jar_folder_path
     
@@ -378,7 +453,7 @@ def restart_service(pid):
         data = request.get_json()
         jar_name = data.get('jar_name') if data else None
         
-        result = restart_service_internal(pid, jar_name, delay_seconds=120)
+        result = restart_service_internal(pid, jar_name, delay_seconds=RESTART_DELAY_CPU_MEMORY)
         
         if result['success']:
             return jsonify({
@@ -406,22 +481,30 @@ def configure_auto_restart(pid):
     try:
         data = request.get_json()
         enabled = data.get('enabled', False)
-        cpu_threshold = data.get('cpu_threshold', 80.0)
-        memory_threshold_mb = data.get('memory_threshold_mb', 1000.0)  # Default 1GB
+        cpu_threshold = data.get('cpu_threshold', DEFAULT_CPU_THRESHOLD)
+        memory_threshold_mb = data.get('memory_threshold_mb', DEFAULT_MEMORY_THRESHOLD_MB)
         jar_name = data.get('jar_name')
         
-        # Validate CPU threshold (minimum 1% to prevent accidental 0% setting)
-        if cpu_threshold < 1 or cpu_threshold > 100:
+        # Validate CPU threshold
+        if cpu_threshold < CPU_THRESHOLD_MIN or cpu_threshold > CPU_THRESHOLD_MAX:
             return jsonify({
                 'success': False,
-                'error': 'CPU threshold must be between 1 and 100'
+                'error': f'CPU threshold must be between {CPU_THRESHOLD_MIN} and {CPU_THRESHOLD_MAX}'
             }), 400
         
-        # Validate memory threshold (in MB, reasonable range: 1MB to 10GB)
-        if memory_threshold_mb < 1 or memory_threshold_mb > 10240:
+        # Validate memory threshold
+        if memory_threshold_mb < MEMORY_THRESHOLD_MIN_MB or memory_threshold_mb > MEMORY_THRESHOLD_MAX_MB:
             return jsonify({
                 'success': False,
-                'error': 'Memory threshold must be between 1 MB and 10240 MB (10 GB)'
+                'error': f'Memory threshold must be between {MEMORY_THRESHOLD_MIN_MB} MB and {MEMORY_THRESHOLD_MAX_MB} MB (10 GB)'
+            }), 400
+        
+        # Get queue threshold
+        queue_threshold = data.get('queue_threshold', DEFAULT_QUEUE_THRESHOLD)
+        if queue_threshold < QUEUE_THRESHOLD_MIN or queue_threshold > QUEUE_THRESHOLD_MAX:
+            return jsonify({
+                'success': False,
+                'error': 'Queue threshold must be between 1 and 1,000,000 messages'
             }), 400
         
         # Get service name for persistent storage
@@ -436,6 +519,7 @@ def configure_auto_restart(pid):
                     'enabled': True,
                     'cpu_threshold': float(cpu_threshold),
                     'memory_threshold_mb': float(memory_threshold_mb),
+                    'queue_threshold': int(queue_threshold),
                     'jar_name': jar_name or existing_config.get('jar_name'),
                     'restarting': existing_config.get('restarting', False)
                 }
@@ -448,12 +532,36 @@ def configure_auto_restart(pid):
                 persistent_data.pop('restarting', None)  # Don't persist restarting state
                 save_auto_restart_config(service_name, persistent_data)
                 
-                logger.info(f"Auto-restart configured for PID {pid} ({service_name}): CPU {cpu_threshold}%, Memory {memory_threshold_mb} MB")
+                logger.info(f"Auto-restart configured for PID {pid} ({service_name}): CPU {cpu_threshold}%, Memory {memory_threshold_mb} MB, Queue {queue_threshold} messages")
             else:
+                # When disabling, preserve queue_threshold if it exists (queue monitoring is independent)
+                existing_config = auto_restart_config.get(pid, {})
+                existing_queue_threshold = existing_config.get('queue_threshold')
+                
                 if pid in auto_restart_config:
-                    del auto_restart_config[pid]
-                # Remove from persistent storage
-                delete_auto_restart_config(service_name)
+                    # If queue threshold exists, keep minimal config for queue monitoring
+                    if existing_queue_threshold:
+                        auto_restart_config[pid] = {
+                            'enabled': False,  # CPU/Memory auto-restart disabled
+                            'queue_threshold': existing_queue_threshold,
+                            'jar_name': jar_name or existing_config.get('jar_name'),
+                            'restarting': False
+                        }
+                        # Save queue threshold to persistent storage
+                        persistent_data = {
+                            'enabled': False,
+                            'queue_threshold': existing_queue_threshold,
+                            'jar_name': jar_name or existing_config.get('jar_name')
+                        }
+                        save_auto_restart_config(service_name, persistent_data)
+                    else:
+                        del auto_restart_config[pid]
+                        delete_auto_restart_config(service_name)
+                else:
+                    # Remove from persistent storage only if no queue threshold
+                    if not existing_queue_threshold:
+                        delete_auto_restart_config(service_name)
+                
                 logger.info(f"Auto-restart disabled for PID {pid} ({service_name})")
         
         return jsonify({
@@ -477,8 +585,9 @@ def get_auto_restart_config(pid):
         with auto_restart_lock:
             config = auto_restart_config.get(pid, {
                 'enabled': False,
-                'cpu_threshold': 80.0,
-                'memory_threshold_mb': 1000.0,
+                'cpu_threshold': DEFAULT_CPU_THRESHOLD,
+                'memory_threshold_mb': DEFAULT_MEMORY_THRESHOLD_MB,
+                'queue_threshold': DEFAULT_QUEUE_THRESHOLD,
                 'jar_name': None,
                 'restarting': False
             })
@@ -495,14 +604,248 @@ def get_auto_restart_config(pid):
         }), 500
 
 
+@app.route('/api/service/<int:pid>/queue-threshold', methods=['POST'])
+def set_queue_threshold(pid):
+    """Set queue threshold independently (works even if CPU/Memory auto-restart is disabled)"""
+    global auto_restart_config
+    try:
+        data = request.get_json()
+        queue_threshold = data.get('queue_threshold', DEFAULT_QUEUE_THRESHOLD)
+        jar_name = data.get('jar_name')
+        
+        if queue_threshold < QUEUE_THRESHOLD_MIN or queue_threshold > QUEUE_THRESHOLD_MAX:
+            return jsonify({
+                'success': False,
+                'error': f'Queue threshold must be between {QUEUE_THRESHOLD_MIN} and {QUEUE_THRESHOLD_MAX:,} messages'
+            }), 400
+        
+        # Get service name for persistent storage
+        service_details = monitor.get_service_details(pid)
+        service_name = jar_name or (service_details.get('service_name') if service_details else None) or f'pid_{pid}'
+        
+        with auto_restart_lock:
+            existing_config = auto_restart_config.get(pid, {})
+            
+            # Preserve existing CPU/Memory settings if they exist
+            config_data = {
+                'enabled': existing_config.get('enabled', False),  # Keep existing enabled state
+                'cpu_threshold': existing_config.get('cpu_threshold', DEFAULT_CPU_THRESHOLD),
+                'memory_threshold_mb': existing_config.get('memory_threshold_mb', DEFAULT_MEMORY_THRESHOLD_MB),
+                'queue_threshold': int(queue_threshold),
+                    'jar_name': jar_name or existing_config.get('jar_name'),
+                    'restarting': existing_config.get('restarting', False)
+                }
+            
+            # Store in memory (by PID)
+            auto_restart_config[pid] = config_data
+            
+            # Store persistently (by service name, without restarting flag)
+            persistent_data = config_data.copy()
+            persistent_data.pop('restarting', None)  # Don't persist restarting state
+            save_auto_restart_config(service_name, persistent_data)
+            
+            logger.info(f"Queue threshold set for PID {pid} ({service_name}): {queue_threshold} messages")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Queue threshold set to {queue_threshold} messages',
+            'config': config_data
+        })
+    except Exception as e:
+        logger.error(f"Error setting queue threshold: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/msmq/queues', methods=['GET'])
+def get_msmq_queues():
+    """Get all MSMQ queues with their message counts"""
+    global jar_folder_path
+    
+    if not msmq_available:
+        return jsonify({
+            'success': False,
+            'error': 'MSMQ monitoring is only available on Windows',
+            'msmq_available': False
+        }), 400
+    
+    try:
+        # Get executable files for matching
+        executable_files = []
+        if jar_folder_path and os.path.isdir(jar_folder_path):
+            try:
+                system = platform.system()
+                supported_exts = {
+                    'Windows': ['.jar', '.exe', '.bat'],
+                    'Darwin': ['.jar', '.sh'],
+                    'Linux': ['.jar', '.sh']
+                }
+                extensions = supported_exts.get(system, ['.jar', '.exe', '.bat', '.sh'])
+                
+                for filename in os.listdir(jar_folder_path):
+                    file_ext = os.path.splitext(filename)[1].lower()
+                    if file_ext in extensions:
+                        file_path = os.path.join(jar_folder_path, filename)
+                        if os.path.isfile(file_path):
+                            executable_files.append(file_path)
+            except Exception as e:
+                logger.warning(f"Error getting executable files: {str(e)}")
+        
+        # Get all queues
+        all_queues = msmq_monitor.get_all_queues()
+        
+        # Match queues to executables
+        queues_with_matches = []
+        for queue in all_queues:
+            queue_name = queue.get('Name', '')
+            message_count = queue.get('MessageCount', 0)
+            matched_exe = msmq_monitor.match_queue_to_executable(queue_name, executable_files)
+            
+            queue_info = {
+                'queue_name': queue_name,
+                'message_count': message_count,
+                'queue_type': queue.get('QueueType', 'Unknown'),
+                'path': queue.get('Path', ''),
+                'matched_executable': os.path.basename(matched_exe) if matched_exe else None,
+                'executable_path': matched_exe if matched_exe else None
+            }
+            queues_with_matches.append(queue_info)
+        
+        return jsonify({
+            'success': True,
+            'queues': queues_with_matches,
+            'msmq_available': True
+        })
+    except Exception as e:
+        logger.error(f"Error getting MSMQ queues: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'msmq_available': True
+        }), 500
+
+
 def auto_restart_monitor():
-    """Background thread to monitor CPU and memory utilization and auto-restart services"""
+    """Background thread to monitor CPU, memory utilization, and MSMQ queue counts, then auto-restart services"""
     global auto_restart_config, jar_folder_path
     
     while True:
         try:
-            time.sleep(30)  # Check every 30 seconds
+            time.sleep(AUTO_RESTART_CHECK_INTERVAL)  # Check every 30 seconds
             
+            # Get executable files for MSMQ matching
+            executable_files = []
+            if jar_folder_path and os.path.isdir(jar_folder_path):
+                try:
+                    system = platform.system()
+                    supported_exts = {
+                        'Windows': ['.jar', '.exe', '.bat'],
+                        'Darwin': ['.jar', '.sh'],
+                        'Linux': ['.jar', '.sh']
+                    }
+                    extensions = supported_exts.get(system, ['.jar', '.exe', '.bat', '.sh'])
+                    
+                    for filename in os.listdir(jar_folder_path):
+                        file_ext = os.path.splitext(filename)[1].lower()
+                        if file_ext in extensions:
+                            file_path = os.path.join(jar_folder_path, filename)
+                            if os.path.isfile(file_path):
+                                executable_files.append(file_path)
+                except Exception as e:
+                    logger.warning(f"Error getting executable files for MSMQ: {str(e)}")
+            
+            # Get MSMQ queue information (Windows only)
+            queue_message_counts = {}  # {executable_name: message_count}
+            if msmq_available and platform.system() == 'Windows':
+                try:
+                    all_queues = msmq_monitor.get_all_queues()
+                    for queue in all_queues:
+                        queue_name = queue.get('Name', '')
+                        message_count = queue.get('MessageCount', 0)
+                        
+                        # Match queue to executable
+                        matched_exe = msmq_monitor.match_queue_to_executable(queue_name, executable_files)
+                        if matched_exe:
+                            exe_name = os.path.basename(matched_exe)
+                            queue_message_counts[exe_name] = message_count
+                except Exception as e:
+                    logger.error(f"Error getting MSMQ queues in monitor: {str(e)}")
+            
+            # Get all running services
+            running_services = monitor.get_all_services()
+            service_by_name = {}
+            for service in running_services:
+                service_name = service.get('service_name') or service.get('jar_name', 'Unknown')
+                service_by_name[service_name] = service
+            
+            # FIRST: Check MSMQ queues independently for ALL services (regardless of auto-restart setting)
+            # This is an additional condition that works independently
+            if msmq_available and platform.system() == 'Windows' and queue_message_counts:
+                for service in running_services:
+                    pid = service['pid']
+                    service_name = service.get('service_name') or service.get('jar_name', 'Unknown')
+                    
+                    # Skip if already restarting
+                    with auto_restart_lock:
+                        existing_config = auto_restart_config.get(pid, {})
+                        if existing_config.get('restarting', False):
+                            continue
+                    
+                    # Check if this service has a queue with exceeded threshold
+                    if service_name in queue_message_counts:
+                        queue_message_count = queue_message_counts[service_name]
+                        # Use default threshold of 10,000 if not configured, or get from config if exists
+                        queue_threshold = existing_config.get('queue_threshold', DEFAULT_QUEUE_THRESHOLD)
+                        
+                        if queue_message_count >= queue_threshold:
+                            logger.warning(f"Service {pid} ({service_name}) queue exceeds threshold: {queue_message_count} >= {queue_threshold} messages. Initiating auto-restart...")
+                            
+                            # Mark as restarting
+                            with auto_restart_lock:
+                                if pid not in auto_restart_config:
+                                    # Create minimal config for queue-based restart
+                                    auto_restart_config[pid] = {
+                                        'enabled': False,  # Queue monitoring is independent
+                                        'queue_threshold': queue_threshold,
+                                        'jar_name': service_name,
+                                        'restarting': True
+                                    }
+                                else:
+                                    auto_restart_config[pid]['restarting'] = True
+                            
+                            # Restart in a separate thread
+                            def queue_restart_thread():
+                                jar_name = service_name
+                                result = restart_service_internal(pid, jar_name, delay_seconds=RESTART_DELAY_QUEUE)
+                                
+                                if result['success']:
+                                    logger.info(f"Queue-based auto-restart successful for service {pid} ({service_name}). New PID: {result.get('pid')}")
+                                    new_pid = result.get('pid')
+                                    if new_pid:
+                                        with auto_restart_lock:
+                                            if pid in auto_restart_config:
+                                                old_config = auto_restart_config[pid]
+                                                del auto_restart_config[pid]
+                                                # Only keep queue threshold if it was set
+                                                if old_config.get('queue_threshold'):
+                                                    auto_restart_config[new_pid] = {
+                                                        'enabled': old_config.get('enabled', False),
+                                                        'queue_threshold': old_config['queue_threshold'],
+                                                        'jar_name': jar_name,
+                                                        'restarting': False
+                                                    }
+                                else:
+                                    logger.error(f"Queue-based auto-restart failed for service {pid} ({service_name}): {result.get('error')}")
+                                    with auto_restart_lock:
+                                        if pid in auto_restart_config:
+                                            auto_restart_config[pid]['restarting'] = False
+                            
+                            threading.Thread(target=queue_restart_thread, daemon=True).start()
+                            continue  # Skip to next service
+            
+            # SECOND: Check CPU and Memory thresholds for services with auto-restart enabled
             with auto_restart_lock:
                 configs_to_check = list(auto_restart_config.items())
             
@@ -519,23 +862,36 @@ def auto_restart_monitor():
                                 del auto_restart_config[pid]
                         continue
                     
+                    service_name = details.get('service_name') or details.get('jar_name', 'Unknown')
                     cpu_percent = details.get('cpu_percent', 0)
                     memory_mb = details.get('memory_mb', 0)
-                    cpu_threshold = config.get('cpu_threshold', 80.0)
-                    memory_threshold_mb = config.get('memory_threshold_mb', 1000.0)
+                    cpu_threshold = config.get('cpu_threshold', DEFAULT_CPU_THRESHOLD)
+                    memory_threshold_mb = config.get('memory_threshold_mb', DEFAULT_MEMORY_THRESHOLD_MB)
                     
-                    # Check if either CPU or memory threshold is exceeded
+                    # Check CPU and memory thresholds
                     cpu_exceeded = cpu_percent >= cpu_threshold
                     memory_exceeded = memory_mb >= memory_threshold_mb
                     
-                    if cpu_exceeded or memory_exceeded:
+                    # Check MSMQ queue threshold (only if auto-restart is enabled)
+                    queue_threshold = config.get('queue_threshold', DEFAULT_QUEUE_THRESHOLD)
+                    queue_exceeded = False
+                    queue_message_count = None
+                    
+                    if service_name in queue_message_counts:
+                        queue_message_count = queue_message_counts[service_name]
+                        queue_exceeded = queue_message_count >= queue_threshold
+                    
+                    # Check if any threshold is exceeded (CPU, Memory, or Queue)
+                    if cpu_exceeded or memory_exceeded or queue_exceeded:
                         reason = []
                         if cpu_exceeded:
                             reason.append(f"CPU ({cpu_percent}% >= {cpu_threshold}%)")
                         if memory_exceeded:
                             reason.append(f"Memory ({memory_mb:.1f} MB >= {memory_threshold_mb:.1f} MB)")
+                        if queue_exceeded:
+                            reason.append(f"MSMQ Queue ({queue_message_count} >= {queue_threshold} messages)")
                         
-                        logger.warning(f"Service {pid} exceeds threshold(s): {', '.join(reason)}. Initiating auto-restart...")
+                        logger.warning(f"Service {pid} ({service_name}) exceeds threshold(s): {', '.join(reason)}. Initiating auto-restart...")
                         
                         # Mark as restarting to prevent multiple restarts
                         with auto_restart_lock:
@@ -545,10 +901,12 @@ def auto_restart_monitor():
                         # Restart in a separate thread to avoid blocking
                         def restart_thread():
                             jar_name = config.get('jar_name')
-                            result = restart_service_internal(pid, jar_name, delay_seconds=120)
+                            # Use queue delay for queue-based restarts, CPU/memory delay for CPU/memory
+                            delay = RESTART_DELAY_QUEUE if queue_exceeded else RESTART_DELAY_CPU_MEMORY
+                            result = restart_service_internal(pid, jar_name, delay_seconds=delay)
                             
                             if result['success']:
-                                logger.info(f"Auto-restart successful for service {pid}. New PID: {result.get('pid')}")
+                                logger.info(f"Auto-restart successful for service {pid} ({service_name}). New PID: {result.get('pid')}")
                                 # Update config with new PID if available
                                 new_pid = result.get('pid')
                                 if new_pid:
@@ -559,7 +917,7 @@ def auto_restart_monitor():
                                             auto_restart_config[new_pid] = old_config
                                             auto_restart_config[new_pid]['restarting'] = False
                             else:
-                                logger.error(f"Auto-restart failed for service {pid}: {result.get('error')}")
+                                logger.error(f"Auto-restart failed for service {pid} ({service_name}): {result.get('error')}")
                                 with auto_restart_lock:
                                     if pid in auto_restart_config:
                                         auto_restart_config[pid]['restarting'] = False
@@ -571,20 +929,20 @@ def auto_restart_monitor():
                     
         except Exception as e:
             logger.error(f"Error in auto-restart monitor: {str(e)}")
-            time.sleep(60)  # Wait longer on error
+            time.sleep(AUTO_RESTART_ERROR_RETRY_INTERVAL)  # Wait longer on error
 
 
 if __name__ == '__main__':
     import sys
     
     # Default port, but allow override via command line argument
-    port = 5001  # Changed from 5000 to avoid macOS AirPlay Receiver conflict
+    port = DEFAULT_PORT
     
     if len(sys.argv) > 1:
         try:
             port = int(sys.argv[1])
         except ValueError:
-            print(f"Invalid port number: {sys.argv[1]}. Using default port 5001.")
+            print(f"Invalid port number: {sys.argv[1]}. Using default port {DEFAULT_PORT}.")
     
     # Start auto-restart monitoring thread
     monitor_thread = threading.Thread(target=auto_restart_monitor, daemon=True)
