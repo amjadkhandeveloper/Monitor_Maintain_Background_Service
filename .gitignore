@@ -60,3 +60,6 @@ setup_*.sh
 *.tmp
 *.bak
 
+# Configuration files (may contain local settings)
+monitor_config.json
+

@@ -18,7 +18,9 @@ A Python-based web application for monitoring and controlling services (JAR, EXE
   - Network connections
   - Command line arguments
 - 🎨 **Modern Web Dashboard**: Beautiful, responsive web interface
-- ⚡ **Auto-refresh**: Dashboard automatically refreshes every 5 seconds
+- ⚡ **Smart Auto-Refresh**: Dashboard refreshes every 20 seconds (pauses when editing)
+- 🔄 **Auto-Restart Feature**: Automatically restart services based on CPU or memory thresholds
+- 💾 **Persistent Storage**: All configurations saved to `monitor_config.json` and persist across restarts
 
 ## Requirements
 
@@ -26,10 +28,6 @@ A Python-based web application for monitoring and controlling services (JAR, EXE
 - Windows, macOS, or Linux operating system
 - Java Runtime Environment (JRE) installed (for running JAR files)
 - For `.sh` files on macOS/Linux: Ensure scripts have execute permissions
-
-## Design after running
-
-<img width="1606" height="871" alt="Screenshot 2025-12-02 at 5 34 55 PM" src="https://github.com/user-attachments/assets/2ee9103e-ee0e-4e03-86a2-0a975123c747" />
 
 ## Installation
 
@@ -92,7 +90,8 @@ A Python-based web application for monitoring and controlling services (JAR, EXE
    - Use "Restart" to restart a service
    - **Enable Auto-Restart**: Toggle auto-restart for any service
    - **Set CPU Threshold**: Configure when auto-restart should trigger (default: 80%)
-   - **Automatic Monitoring**: Services are checked every 30 seconds for high CPU usage
+   - **Set Memory Threshold**: Configure memory limit for auto-restart (default: 1000 MB)
+   - **Automatic Monitoring**: Services are checked every 30 seconds for high CPU or memory usage
 
 ## Important: Detached Process Execution
 
@@ -109,39 +108,91 @@ This is achieved by:
 
 ## Auto-Restart Feature
 
-The monitor includes an **automatic restart feature** based on CPU utilization:
+The monitor includes an **automatic restart feature** based on CPU and memory utilization:
 
 - **Enable/Disable**: Toggle auto-restart for individual services via the dashboard
 - **CPU Threshold**: Set custom CPU threshold (0-100%) - default is 80%
-- **Automatic Monitoring**: Background thread checks CPU usage every 30 seconds
-- **Smart Restart**: When CPU exceeds threshold:
+- **Memory Threshold**: Set custom memory threshold (100 MB - 10 GB) - default is 1000 MB (1 GB)
+- **Dual Monitoring**: Auto-restart triggers when **either** CPU **OR** memory exceeds threshold
+- **Automatic Monitoring**: Background thread checks CPU and memory usage every 30 seconds
+- **Smart Restart**: When threshold is exceeded:
   - Service is stopped gracefully
   - **2-minute delay** (120 seconds) to allow memory cleanup and better performance
   - Service is automatically restarted
 - **Status Indicators**: 
-  - Green: Auto-restart enabled
+  - Green: Auto-restart enabled (shows both thresholds)
   - Yellow: Currently restarting (with 2-min delay)
   - Red: Auto-restart disabled
 
 **Benefits:**
 - Prevents services from getting stuck with high CPU usage
+- Prevents memory leaks and excessive memory consumption
 - Automatically frees memory by restarting services
 - 2-minute delay ensures proper cleanup before restart
 - Services remain available even during restart process
+- Dual threshold monitoring catches both CPU spikes and memory leaks
+
+## Configuration Storage
+
+All settings are **persistently stored** in `monitor_config.json`:
+
+- ✅ **Auto-restart configurations** (CPU and memory thresholds)
+- ✅ **Folder path** for executable files
+- ✅ **Survives Flask app restarts**
+- ✅ **Stored by service name** (not PID) - survives service restarts
+
+**Location**: `monitor_config.json` (in the same directory as `app.py`)
+
+**Example configuration**:
+```json
+{
+  "auto_restart": {
+    "my-service.jar": {
+      "enabled": true,
+      "cpu_threshold": 85.0,
+      "memory_threshold_mb": 1500.0,
+      "jar_name": "my-service.jar"
+    }
+  },
+  "folder_path": "/path/to/jar/folder"
+}
+```
+
+See `STORAGE_INFO.md` for more details about configuration storage.
+
+## Dashboard Features
+
+### Smart Auto-Refresh
+- Dashboard refreshes every **20 seconds** (configurable)
+- **Automatically pauses** when you're editing input fields
+- Resumes after you finish editing
+- Prevents interruptions while configuring thresholds
+
+### File Type Support
+- **JAR files**: Java applications (all platforms)
+- **EXE files**: Windows executables (Windows only)
+- **BAT files**: Windows batch scripts (Windows only)
+- **SH files**: Shell scripts (macOS/Linux only)
+
+### Visual Indicators
+- Color-coded file type badges
+- CPU usage bars (red if > 80%)
+- Memory usage bars (red if > 1GB)
+- Auto-restart status indicators
 
 ## API Endpoints
 
 The application provides REST API endpoints for programmatic access:
 
-- `GET /api/services` - Get list of all Java JAR services
+- `GET /api/services` - Get list of all services with status and utilization
 - `GET /api/service/<pid>` - Get detailed information about a specific service
 - `POST /api/service/<pid>/stop` - Stop a service
 - `POST /api/service/<pid>/restart` - Restart a service (with 2-minute delay)
 - `POST /api/service/<pid>/start` - Start a service (requires jar_path in request body)
-- `POST /api/service/<pid>/auto-restart` - Configure auto-restart (enable/disable, set CPU threshold)
+- `POST /api/service/<pid>/auto-restart` - Configure auto-restart (enable/disable, set CPU and memory thresholds)
 - `GET /api/service/<pid>/auto-restart` - Get auto-restart configuration for a service
-- `POST /api/folder/set` - Set the folder path for JAR files
-- `GET /api/folder/jars` - List all JAR files in the configured folder
+- `POST /api/folder/set` - Set the folder path for executable files
+- `GET /api/folder/jars` - List all executable files in the configured folder
 
 ## Troubleshooting
 
@@ -152,8 +203,9 @@ The application provides REST API endpoints for programmatic access:
 
 ### Cannot stop/start services
 - Ensure you have administrator privileges if required
-- Check that the JAR file path is accessible
-- Verify that Java is in your system PATH
+- Check that the executable file path is accessible
+- Verify that Java is in your system PATH (for JAR files)
+- For `.sh` files: Ensure they have execute permissions
 
 ### Services continue running after stopping the monitor
 - This is **expected behavior** - services are started as detached processes
@@ -164,7 +216,19 @@ The application provides REST API endpoints for programmatic access:
 ### High CPU/Memory Usage
 - Services showing high utilization (CPU > 80% or Memory > 1GB) are highlighted in red
 - Use the "Restart" button to restart stuck services
+- Enable auto-restart to automatically handle high usage
 - Check service details for more information about resource usage
+
+### Auto-restart not working
+- Ensure auto-restart is enabled for the service
+- Check that thresholds are set correctly
+- Verify the service is running (auto-restart only works for running services)
+- Check Flask app logs for any errors
+
+### Configuration not persisting
+- Check that `monitor_config.json` file exists and is writable
+- Verify file permissions in the application directory
+- Check Flask app logs for configuration save errors
 
 ## Security Notes
 
@@ -176,8 +240,29 @@ The application provides REST API endpoints for programmatic access:
 - Consider adding authentication for production deployments
 - Be cautious when exposing this service on public networks
 - Never commit sensitive information like API keys, tokens, or passwords to the repository
+- The `monitor_config.json` file is excluded from Git (contains local settings)
+
+## File Structure
+
+```
+ProcessProgram/
+├── app.py                 # Main Flask application
+├── service_monitor.py     # Service monitoring and control logic
+├── config_storage.py      # Persistent configuration storage
+├── requirements.txt       # Python dependencies
+├── README.md             # This file
+├── STORAGE_INFO.md       # Configuration storage documentation
+├── monitor_config.json   # Persistent configuration (created automatically)
+├── templates/
+│   └── dashboard.html     # Web dashboard UI
+├── start_monitor.sh      # macOS/Linux startup script
+└── start_monitor.bat      # Windows startup script
+```
 
 ## License
 
-This project is provided as-is for monitoring and managing Java services.
+This project is provided as-is for monitoring and managing services.
 
+## Support
+
+For issues, questions, or contributions, please refer to the repository's issue tracker.

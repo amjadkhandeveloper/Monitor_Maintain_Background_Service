@@ -551,6 +551,47 @@
             margin-top: 8px;
         }
 
+        .threshold-inputs {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .threshold-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .threshold-row label {
+            font-size: 0.85em;
+            color: #666;
+            min-width: 80px;
+        }
+
+        .threshold-row input {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .threshold-row button {
+            padding: 6px 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+
+        .threshold-row button:hover {
+            background: #5568d3;
+        }
+
         .cpu-threshold-input input {
             flex: 1;
             padding: 6px 10px;
@@ -650,17 +691,21 @@
         let refreshInterval;
         let currentFolderPath = null;
         let jarNameMap = {}; // Map PID to jar_name for restart functionality
+        let isUserEditing = false; // Flag to pause auto-refresh when user is editing
+        const REFRESH_INTERVAL = 20000; // 20 seconds (increased from 5 seconds)
 
         // Load services on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadServices();
-            // Auto-refresh every 5 seconds
+            // Auto-refresh every 20 seconds (only if user is not editing)
             refreshInterval = setInterval(() => {
-                loadServices();
-                if (currentFolderPath) {
-                    loadJarFiles();
+                if (!isUserEditing) {
+                    loadServices();
+                    if (currentFolderPath) {
+                        loadJarFiles();
+                    }
                 }
-            }, 5000);
+            }, REFRESH_INTERVAL);
         });
 
         function showMessage(message, type) {
@@ -673,11 +718,13 @@
         }
 
         async function setFolderPath() {
+            pauseAutoRefresh();
             const folderInput = document.getElementById('folderPathInput');
             const folderPath = folderInput.value.trim();
             
             if (!folderPath) {
                 showMessage('Please enter a folder path', 'error');
+                resumeAutoRefresh();
                 return;
             }
 
@@ -701,6 +748,8 @@
                 }
             } catch (error) {
                 showMessage('Error: ' + error.message, 'error');
+            } finally {
+                resumeAutoRefresh();
             }
         }
 
@@ -835,9 +884,11 @@
             const cpuBarClass = service.cpu_percent > 80 ? 'bar-high' : 'bar-cpu';
             const memoryBarClass = service.memory_mb > 1000 ? 'bar-high' : 'bar-memory';
             
-            const autoRestart = service.auto_restart || { enabled: false, cpu_threshold: 80.0, restarting: false };
+            const autoRestart = service.auto_restart || { enabled: false, cpu_threshold: 80.0, memory_threshold_mb: 1000.0, restarting: false };
             const autoRestartEnabled = autoRestart.enabled;
-            const cpuThreshold = autoRestart.cpu_threshold || 80.0;
+            // Use actual values from config, don't default if they exist (even if 0 or low values)
+            const cpuThreshold = autoRestart.cpu_threshold !== undefined ? autoRestart.cpu_threshold : 80.0;
+            const memoryThresholdMb = autoRestart.memory_threshold_mb !== undefined ? autoRestart.memory_threshold_mb : 1000.0;
             const isRestarting = autoRestart.restarting || false;
             
             let autoRestartStatusClass = 'auto-restart-inactive';
@@ -847,7 +898,7 @@
                 autoRestartStatusText = '🔄 Auto-restarting... (2 min delay)';
             } else if (autoRestartEnabled) {
                 autoRestartStatusClass = 'auto-restart-active';
-                autoRestartStatusText = `✅ Auto-restart: Enabled (CPU > ${cpuThreshold}%)`;
+                autoRestartStatusText = `✅ Auto-restart: Enabled (CPU > ${cpuThreshold}% OR Memory > ${memoryThresholdMb} MB)`;
             }
 
             return `
@@ -908,15 +959,30 @@
                             </label>
                         </div>
                         ${autoRestartEnabled && service.status === 'running' && !isRestarting ? `
-                            <div class="cpu-threshold-input">
-                                <input type="number" 
-                                       id="cpuThreshold_${service.pid}" 
-                                       value="${cpuThreshold}" 
-                                       min="0" 
-                                       max="100" 
-                                       step="1"
-                                       placeholder="CPU %">
-                                <button onclick="setCpuThreshold(${service.pid}, '${escapeHtml(service.jar_name)}')">Set</button>
+                            <div class="threshold-inputs">
+                                <div class="threshold-row">
+                                    <label>CPU %:</label>
+                                    <input type="number" 
+                                           id="cpuThreshold_${service.pid}" 
+                                           value="${cpuThreshold}" 
+                                           min="1" 
+                                           max="100" 
+                                           step="1"
+                                           placeholder="CPU %"
+                                           onfocus="pauseAutoRefresh()"
+                                           onblur="resumeAutoRefresh()">
+                                    <label>Memory MB:</label>
+                                    <input type="number" 
+                                           id="memoryThreshold_${service.pid}" 
+                                           value="${memoryThresholdMb}" 
+                                           min="1" 
+                                           max="10240" 
+                                           step="1"
+                                           placeholder="Memory MB"
+                                           onfocus="pauseAutoRefresh()"
+                                           onblur="resumeAutoRefresh()">
+                                    <button onclick="setThresholds(${service.pid}, '${escapeHtml(service.jar_name)}')">Set</button>
+                                </div>
                             </div>
                         ` : ''}
                         <div class="auto-restart-status ${autoRestartStatusClass}">
@@ -1103,6 +1169,50 @@
 
         async function toggleAutoRestart(pid, jarName, enabled) {
             try {
+                // Get current config to preserve existing thresholds
+                // First try to get from current service data (from the last loadServices call)
+                let cpuThreshold = 80.0;
+                let memoryThreshold = 1000.0;
+                
+                // Try to find the service in the current services list to get existing config
+                try {
+                    const servicesResponse = await fetch('/api/services');
+                    const servicesData = await servicesResponse.json();
+                    if (servicesData.success) {
+                        const currentService = servicesData.services.find(s => s.pid === pid);
+                        if (currentService && currentService.auto_restart) {
+                            const existingConfig = currentService.auto_restart;
+                            if (existingConfig.cpu_threshold !== undefined) {
+                                cpuThreshold = existingConfig.cpu_threshold;
+                            }
+                            if (existingConfig.memory_threshold_mb !== undefined) {
+                                memoryThreshold = existingConfig.memory_threshold_mb;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log('Could not fetch current service config, using defaults');
+                }
+                
+                if (enabled) {
+                    // Try to get existing thresholds from the UI inputs (user might have changed them)
+                    const cpuInput = document.getElementById(`cpuThreshold_${pid}`);
+                    const memoryInput = document.getElementById(`memoryThreshold_${pid}`);
+                    
+                    if (cpuInput && cpuInput.value) {
+                        const inputValue = parseFloat(cpuInput.value);
+                        if (!isNaN(inputValue) && inputValue >= 1 && inputValue <= 100) {
+                            cpuThreshold = inputValue;
+                        }
+                    }
+                    if (memoryInput && memoryInput.value) {
+                        const inputValue = parseFloat(memoryInput.value);
+                        if (!isNaN(inputValue) && inputValue >= 1 && inputValue <= 10240) {
+                            memoryThreshold = inputValue;
+                        }
+                    }
+                }
+                
                 const response = await fetch(`/api/service/${pid}/auto-restart`, {
                     method: 'POST',
                     headers: {
@@ -1110,7 +1220,8 @@
                     },
                     body: JSON.stringify({
                         enabled: enabled,
-                        cpu_threshold: 80.0,
+                        cpu_threshold: cpuThreshold,
+                        memory_threshold_mb: memoryThreshold,
                         jar_name: jarName
                     })
                 });
@@ -1131,39 +1242,96 @@
             }
         }
 
-        async function setCpuThreshold(pid, jarName) {
-            const input = document.getElementById(`cpuThreshold_${pid}`);
-            const threshold = parseFloat(input.value);
+        function pauseAutoRefresh() {
+            isUserEditing = true;
+            console.log('Auto-refresh paused (user is editing)');
+        }
+
+        function resumeAutoRefresh() {
+            // Small delay before resuming to allow user to finish typing
+            setTimeout(() => {
+                isUserEditing = false;
+                console.log('Auto-refresh resumed');
+            }, 1000);
+        }
+
+        async function setThresholds(pid, jarName) {
+            // Pause auto-refresh while setting
+            pauseAutoRefresh();
             
-            if (isNaN(threshold) || threshold < 0 || threshold > 100) {
-                showMessage('CPU threshold must be between 0 and 100', 'error');
+            const cpuInput = document.getElementById(`cpuThreshold_${pid}`);
+            const memoryInput = document.getElementById(`memoryThreshold_${pid}`);
+            
+            if (!cpuInput || !memoryInput) {
+                showMessage('Error: Could not find threshold input fields', 'error');
+                console.error('Input fields not found:', { cpuInput, memoryInput, pid });
+                resumeAutoRefresh();
+                return;
+            }
+            
+            const cpuThreshold = parseFloat(cpuInput.value);
+            const memoryThreshold = parseFloat(memoryInput.value);
+            
+            if (isNaN(cpuThreshold) || cpuThreshold < 1 || cpuThreshold > 100) {
+                showMessage('CPU threshold must be between 1 and 100', 'error');
+                cpuInput.focus();
+                resumeAutoRefresh();
+                return;
+            }
+
+            if (isNaN(memoryThreshold) || memoryThreshold < 1 || memoryThreshold > 10240) {
+                showMessage('Memory threshold must be between 1 MB and 10240 MB (10 GB)', 'error');
+                memoryInput.focus();
+                resumeAutoRefresh();
                 return;
             }
 
             try {
+                const requestBody = {
+                    enabled: true,
+                    cpu_threshold: cpuThreshold,
+                    memory_threshold_mb: memoryThreshold,
+                    jar_name: jarName
+                };
+                
+                console.log('Setting thresholds:', requestBody);
+                
                 const response = await fetch(`/api/service/${pid}/auto-restart`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        enabled: true,
-                        cpu_threshold: threshold,
-                        jar_name: jarName
-                    })
+                    body: JSON.stringify(requestBody)
                 });
                 
                 const data = await response.json();
+                console.log('Response:', data);
                 
                 if (data.success) {
-                    showMessage(`CPU threshold set to ${threshold}%`, 'success');
-                    setTimeout(loadServices, 500);
+                    showMessage(`Thresholds set: CPU > ${cpuThreshold}% OR Memory > ${memoryThreshold} MB`, 'success');
+                    // Reload services to show updated values
+                    setTimeout(() => {
+                        loadServices();
+                        resumeAutoRefresh();
+                    }, 500);
                 } else {
-                    showMessage('Error: ' + data.error, 'error');
+                    showMessage('Error: ' + (data.error || 'Unknown error'), 'error');
+                    // Reload to show current state
+                    setTimeout(() => {
+                        loadServices();
+                        resumeAutoRefresh();
+                    }, 500);
                 }
             } catch (error) {
                 showMessage('Error: ' + error.message, 'error');
+                console.error('Error setting thresholds:', error);
+                resumeAutoRefresh();
             }
+        }
+
+        // Keep backward compatibility
+        async function setCpuThreshold(pid, jarName) {
+            return setThresholds(pid, jarName);
         }
 
         function escapeHtml(text) {
