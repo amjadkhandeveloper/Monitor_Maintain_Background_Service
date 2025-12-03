@@ -694,21 +694,42 @@
         </div>
     </div>
 
+    <!-- Flask constants as JSON (no linter errors) -->
+    <script type="application/json" id="flask-config">
+        {
+            "refresh_interval_ms": {{ refresh_interval_ms|tojson }},
+            "default_cpu_threshold": {{ default_cpu_threshold|tojson }},
+            "default_memory_threshold_mb": {{ default_memory_threshold_mb|tojson }},
+            "default_queue_threshold": {{ default_queue_threshold|tojson }},
+            "cpu_threshold_min": {{ cpu_threshold_min|tojson }},
+            "cpu_threshold_max": {{ cpu_threshold_max|tojson }},
+            "memory_threshold_min_mb": {{ memory_threshold_min_mb|tojson }},
+            "memory_threshold_max_mb": {{ memory_threshold_max_mb|tojson }},
+            "queue_threshold_min": {{ queue_threshold_min|tojson }},
+            "queue_threshold_max": {{ queue_threshold_max|tojson }}
+        }
+    </script>
+
     <script>
+        // Parse Flask constants from JSON (no linter errors)
+        const CONFIG = JSON.parse(document.getElementById('flask-config').textContent);
+        
         let refreshInterval;
         let currentFolderPath = null;
         let jarNameMap = {}; // Map PID to jar_name for restart functionality
         let isUserEditing = false; // Flag to pause auto-refresh when user is editing
-        const REFRESH_INTERVAL = {{ refresh_interval_ms }}; // Dashboard refresh interval in milliseconds
-        const DEFAULT_CPU_THRESHOLD = {{ default_cpu_threshold }};
-        const DEFAULT_MEMORY_THRESHOLD_MB = {{ default_memory_threshold_mb }};
-        const DEFAULT_QUEUE_THRESHOLD = {{ default_queue_threshold }};
-        const CPU_THRESHOLD_MIN = {{ cpu_threshold_min }};
-        const CPU_THRESHOLD_MAX = {{ cpu_threshold_max }};
-        const MEMORY_THRESHOLD_MIN_MB = {{ memory_threshold_min_mb }};
-        const MEMORY_THRESHOLD_MAX_MB = {{ memory_threshold_max_mb }};
-        const QUEUE_THRESHOLD_MIN = {{ queue_threshold_min }};
-        const QUEUE_THRESHOLD_MAX = {{ queue_threshold_max }};
+        
+        // Extract constants for backward compatibility
+        const REFRESH_INTERVAL = CONFIG.refresh_interval_ms;
+        const DEFAULT_CPU_THRESHOLD = CONFIG.default_cpu_threshold;
+        const DEFAULT_MEMORY_THRESHOLD_MB = CONFIG.default_memory_threshold_mb;
+        const DEFAULT_QUEUE_THRESHOLD = CONFIG.default_queue_threshold;
+        const CPU_THRESHOLD_MIN = CONFIG.cpu_threshold_min;
+        const CPU_THRESHOLD_MAX = CONFIG.cpu_threshold_max;
+        const MEMORY_THRESHOLD_MIN_MB = CONFIG.memory_threshold_min_mb;
+        const MEMORY_THRESHOLD_MAX_MB = CONFIG.memory_threshold_max_mb;
+        const QUEUE_THRESHOLD_MIN = CONFIG.queue_threshold_min;
+        const QUEUE_THRESHOLD_MAX = CONFIG.queue_threshold_max;
 
         // Load services on page load
         document.addEventListener('DOMContentLoaded', function() {
