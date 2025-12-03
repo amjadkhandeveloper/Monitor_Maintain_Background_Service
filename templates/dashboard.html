@@ -162,6 +162,35 @@
             color: #666;
         }
 
+        .jar-item-type {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.75em;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+
+        .type-jar {
+            background: #667eea;
+            color: white;
+        }
+
+        .type-exe {
+            background: #28a745;
+            color: white;
+        }
+
+        .type-bat {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .type-sh {
+            background: #ffc107;
+            color: #333;
+        }
+
         .no-jars {
             text-align: center;
             color: #666;
@@ -596,8 +625,8 @@
 
         <div class="main-content">
             <div class="left-sidebar">
-                <div class="sidebar-header">📦 Available JAR Files</div>
-                <div id="jarListContainer" class="no-jars">Please set folder path to view JAR files</div>
+                <div class="sidebar-header">📦 Available Executable Files</div>
+                <div id="jarListContainer" class="no-jars">Please set folder path to view executable files</div>
             </div>
 
             <div class="right-content">
@@ -679,7 +708,7 @@
             const container = document.getElementById('jarListContainer');
             
             if (!currentFolderPath) {
-                container.innerHTML = '<div class="no-jars">Please set folder path to view JAR files</div>';
+                container.innerHTML = '<div class="no-jars">Please set folder path to view executable files</div>';
                 return;
             }
 
@@ -701,23 +730,30 @@
             const container = document.getElementById('jarListContainer');
             
             if (jarFiles.length === 0) {
-                container.innerHTML = '<div class="no-jars">No JAR files found in this folder</div>';
+                container.innerHTML = '<div class="no-jars">No executable files found in this folder</div>';
                 return;
             }
 
             container.innerHTML = `
                 <ul class="jar-list">
-                    ${jarFiles.map(jar => `
-                        <li class="jar-item" onclick="startJarService('${jar.name}')">
-                            <div class="jar-item-name">${escapeHtml(jar.name)}</div>
-                            <div class="jar-item-size">${jar.size_mb} MB</div>
+                    ${jarFiles.map(file => {
+                        const typeClass = `type-${(file.type || file.extension || 'jar').toLowerCase().replace('.', '')}`;
+                        const typeLabel = (file.type || file.extension || 'JAR').toUpperCase().replace('.', '');
+                        return `
+                        <li class="jar-item" onclick="startService('${file.name}')">
+                            <div class="jar-item-name">
+                                ${escapeHtml(file.name)}
+                                <span class="jar-item-type ${typeClass}">${typeLabel}</span>
+                            </div>
+                            <div class="jar-item-size">${file.size_mb} MB</div>
                         </li>
-                    `).join('')}
+                    `;
+                    }).join('')}
                 </ul>
             `;
         }
 
-        async function startJarService(jarName) {
+        async function startService(fileName) {
             if (!currentFolderPath) {
                 showMessage('Please set folder path first', 'error');
                 return;
@@ -725,7 +761,7 @@
 
             // Handle path separator for different OS
             const separator = currentFolderPath.includes('\\') ? '\\' : '/';
-            const jarPath = currentFolderPath + (currentFolderPath.endsWith('/') || currentFolderPath.endsWith('\\') ? '' : separator) + jarName;
+            const servicePath = currentFolderPath + (currentFolderPath.endsWith('/') || currentFolderPath.endsWith('\\') ? '' : separator) + fileName;
             
             try {
                 const response = await fetch('/api/service/start', {
@@ -733,7 +769,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ jar_path: jarPath })
+                    body: JSON.stringify({ jar_path: servicePath })  // Keep 'jar_path' for backward compatibility
                 });
                 
                 const data = await response.json();
@@ -747,6 +783,11 @@
             } catch (error) {
                 showMessage('Error: ' + error.message, 'error');
             }
+        }
+
+        // Keep backward compatibility
+        async function startJarService(jarName) {
+            return startService(jarName);
         }
 
         async function loadServices() {

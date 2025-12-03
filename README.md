@@ -1,12 +1,15 @@
-# Java JAR Service Monitor
+# Service Monitor - Multi-Platform Executable Monitor
 
-A Python-based web application for monitoring and controlling Java JAR services running on Windows. This tool helps you detect when Java services become unresponsive or stuck, monitor their resource utilization, and manage them through an intuitive web dashboard.
+A Python-based web application for monitoring and controlling services (JAR, EXE, BAT, SH files) running on Windows, macOS, and Linux. This tool helps you detect when services become unresponsive or stuck, monitor their resource utilization, and manage them through an intuitive web dashboard.
 
 ## Features
 
-- 🔍 **Automatic Detection**: Automatically detects all running Java JAR services
+- 🔍 **Automatic Detection**: Automatically detects all running services (JAR, EXE, BAT, SH files)
 - 📊 **Real-time Monitoring**: Monitor CPU and memory utilization in real-time
-- 🎛️ **Service Control**: Start, stop, and restart Java services
+- 🎛️ **Service Control**: Start, stop, and restart services
+- 🖥️ **Multi-Platform Support**: 
+  - **Windows**: Supports `.jar`, `.exe`, `.bat` files
+  - **macOS/Linux**: Supports `.jar`, `.sh` files
 - 📈 **Detailed Information**: View comprehensive details about each service including:
   - Process ID (PID)
   - CPU and memory usage
@@ -20,8 +23,9 @@ A Python-based web application for monitoring and controlling Java JAR services 
 ## Requirements
 
 - Python 3.7 or higher
-- Windows or macOS operating system
+- Windows, macOS, or Linux operating system
 - Java Runtime Environment (JRE) installed (for running JAR files)
+- For `.sh` files on macOS/Linux: Ensure scripts have execute permissions
 
 ## Installation
 
@@ -71,10 +75,13 @@ A Python-based web application for monitoring and controlling Java JAR services 
    ```
 
 3. **Monitor your services**:
-   - Set the folder path where your JAR files are located
-   - View all available JAR files in the left sidebar (30% width)
+   - Set the folder path where your executable files are located
+   - View all available executable files in the left sidebar (30% width):
+     - **Windows**: `.jar`, `.exe`, `.bat` files
+     - **macOS/Linux**: `.jar`, `.sh` files
    - View running services in the right panel (70% width)
-   - Click on a JAR file in the sidebar to start it
+   - Click on any executable file in the sidebar to start it
+   - File types are color-coded with badges (JAR, EXE, BAT, SH)
    - View CPU and memory utilization for each service
    - Click "Details" to see comprehensive information about a service
    - Use "Stop" to terminate a service
@@ -135,8 +142,9 @@ The application provides REST API endpoints for programmatic access:
 ## Troubleshooting
 
 ### Service not detected
-- Ensure the Java process is actually running a JAR file (not just a Java application)
-- Check that the process has a `.jar` file in its command line arguments
+- Ensure the service is running a supported file type (`.jar`, `.exe`, `.bat`, `.sh`)
+- For JAR files: Check that the process has a `.jar` file in its command line arguments
+- For `.sh` files: Ensure the script has execute permissions (`chmod +x script.sh`)
 
 ### Cannot stop/start services
 - Ensure you have administrator privileges if required

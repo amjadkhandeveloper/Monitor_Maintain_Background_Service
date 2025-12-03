@@ -218,8 +218,10 @@ def set_folder_path():
 
 @app.route('/api/folder/jars', methods=['GET'])
 def list_jar_files():
-    """List all JAR files in the configured folder"""
+    """List all executable files (JAR, EXE, BAT, SH) in the configured folder"""
     global jar_folder_path
+    import platform
+    
     try:
         folder = request.args.get('folder_path', jar_folder_path)
         
@@ -235,18 +237,32 @@ def list_jar_files():
                 'error': f'Folder does not exist: {folder}'
             }), 400
         
-        jar_files = []
+        # Get supported extensions for current OS
+        system = platform.system()
+        supported_exts = {
+            'Windows': ['.jar', '.exe', '.bat'],
+            'Darwin': ['.jar', '.sh'],  # macOS
+            'Linux': ['.jar', '.sh']
+        }
+        extensions = supported_exts.get(system, ['.jar', '.exe', '.bat', '.sh'])
+        
+        executable_files = []
         try:
             for filename in os.listdir(folder):
-                if filename.lower().endswith('.jar'):
+                file_ext = os.path.splitext(filename)[1].lower()
+                if file_ext in extensions:
                     file_path = os.path.join(folder, filename)
-                    file_size = os.path.getsize(file_path)
-                    jar_files.append({
-                        'name': filename,
-                        'path': file_path,
-                        'size_mb': round(file_size / (1024 * 1024), 2)
-                    })
-            jar_files.sort(key=lambda x: x['name'])
+                    if os.path.isfile(file_path):  # Only include files, not directories
+                        file_size = os.path.getsize(file_path)
+                        file_type = file_ext.upper().replace('.', '')
+                        executable_files.append({
+                            'name': filename,
+                            'path': file_path,
+                            'size_mb': round(file_size / (1024 * 1024), 2),
+                            'type': file_type,
+                            'extension': file_ext
+                        })
+            executable_files.sort(key=lambda x: (x['type'], x['name']))
         except PermissionError:
             return jsonify({
                 'success': False,
@@ -255,8 +271,10 @@ def list_jar_files():
         
         return jsonify({
             'success': True,
-            'jar_files': jar_files,
-            'folder_path': folder
+            'jar_files': executable_files,  # Keep 'jar_files' key for backward compatibility
+            'executable_files': executable_files,  # New key name
+            'folder_path': folder,
+            'supported_types': extensions
         })
     except Exception as e:
         logger.error(f"Error listing JAR files: {str(e)}")

@@ -1,6 +1,6 @@
 """
 Service Monitor Module
-Handles detection, monitoring, and control of Java JAR services on Windows, macOS, and Linux
+Handles detection, monitoring, and control of services (JAR, EXE, BAT, SH) on Windows, macOS, and Linux
 """
 
 import psutil
@@ -10,61 +10,110 @@ import platform
 import logging
 from datetime import datetime
 import json
+import stat
 
 logger = logging.getLogger(__name__)
 
+# Supported file extensions by OS
+SUPPORTED_EXTENSIONS = {
+    'Windows': ['.jar', '.exe', '.bat'],
+    'Darwin': ['.jar', '.sh'],  # macOS
+    'Linux': ['.jar', '.sh']
+}
+
 
 class ServiceMonitor:
-    """Monitor and control Java JAR services"""
+    """Monitor and control services (JAR, EXE, BAT, SH files)"""
     
     def __init__(self):
         """Initialize the service monitor"""
-        self.java_processes = []
+        self.processes = []
+        self.system = platform.system()
     
-    def _is_java_process(self, process):
-        """Check if a process is a Java process"""
+    def _get_supported_extensions(self):
+        """Get supported file extensions for current OS"""
+        return SUPPORTED_EXTENSIONS.get(self.system, ['.jar', '.exe', '.bat', '.sh'])
+    
+    def _is_service_process(self, process):
+        """Check if a process is a monitored service (JAR, EXE, BAT, SH)"""
         try:
             cmdline = process.cmdline()
             if not cmdline:
                 return False
             
-            # Check if it's a java process
-            if 'java' in cmdline[0].lower() or 'javaw' in cmdline[0].lower():
-                # Check if it's running a JAR file
+            exe_path = cmdline[0].lower()
+            
+            # Check for Java JAR processes
+            if 'java' in exe_path or 'javaw' in exe_path:
                 for arg in cmdline:
                     if arg.endswith('.jar'):
                         return True
+            
+            # Check for executable files (.exe, .bat, .sh)
+            for ext in ['.exe', '.bat', '.sh']:
+                if exe_path.endswith(ext) or any(arg.endswith(ext) for arg in cmdline):
+                    return True
+            
             return False
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             return False
     
-    def _get_jar_path(self, process):
-        """Extract JAR file path from process command line"""
+    def _get_service_path(self, process):
+        """Extract service file path from process command line"""
         try:
             cmdline = process.cmdline()
+            exe_path = cmdline[0]
+            
+            # Check for JAR files
             for arg in cmdline:
                 if arg.endswith('.jar'):
                     return arg
-            return None
+            
+            # Check for executable files
+            for ext in ['.exe', '.bat', '.sh']:
+                if exe_path.endswith(ext):
+                    return exe_path
+                for arg in cmdline:
+                    if arg.endswith(ext):
+                        return arg
+            
+            # Return executable path as fallback
+            return exe_path
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return None
     
-    def _get_jar_name(self, jar_path):
-        """Extract JAR name from path"""
-        if jar_path:
-            return os.path.basename(jar_path)
+    def _get_service_name(self, service_path):
+        """Extract service name from path"""
+        if service_path:
+            return os.path.basename(service_path)
         return "Unknown"
     
+    def _get_file_type(self, file_path):
+        """Get file type based on extension"""
+        if not file_path:
+            return "Unknown"
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == '.jar':
+            return 'JAR'
+        elif ext == '.exe':
+            return 'EXE'
+        elif ext == '.bat':
+            return 'BAT'
+        elif ext == '.sh':
+            return 'SH'
+        return 'Unknown'
+    
     def get_all_services(self):
-        """Get all running Java JAR services with their status and utilization"""
+        """Get all running services (JAR, EXE, BAT, SH) with their status and utilization"""
         services = []
         
         try:
             for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'cpu_percent', 'memory_info', 'status', 'create_time']):
                 try:
-                    if self._is_java_process(proc):
-                        jar_path = self._get_jar_path(proc)
-                        jar_name = self._get_jar_name(jar_path)
+                    if self._is_service_process(proc):
+                        service_path = self._get_service_path(proc)
+                        service_name = self._get_service_name(service_path)
+                        file_type = self._get_file_type(service_path)
                         
                         # Get CPU and memory utilization
                         cpu_percent = proc.cpu_percent(interval=0.1)
@@ -80,8 +129,11 @@ class ServiceMonitor:
                         
                         service_info = {
                             'pid': proc.pid,
-                            'jar_name': jar_name,
-                            'jar_path': jar_path or 'Unknown',
+                            'service_name': service_name,
+                            'jar_name': service_name,  # Keep for backward compatibility
+                            'service_path': service_path or 'Unknown',
+                            'jar_path': service_path or 'Unknown',  # Keep for backward compatibility
+                            'file_type': file_type,
                             'status': status,
                             'cpu_percent': round(cpu_percent, 2),
                             'memory_mb': round(memory_mb, 2),
@@ -104,11 +156,12 @@ class ServiceMonitor:
         try:
             proc = psutil.Process(pid)
             
-            if not self._is_java_process(proc):
+            if not self._is_service_process(proc):
                 return None
             
-            jar_path = self._get_jar_path(proc)
-            jar_name = self._get_jar_name(jar_path)
+            service_path = self._get_service_path(proc)
+            service_name = self._get_service_name(service_path)
+            file_type = self._get_file_type(service_path)
             
             # Get comprehensive process information
             cpu_percent = proc.cpu_percent(interval=0.1)
@@ -143,8 +196,11 @@ class ServiceMonitor:
             
             details = {
                 'pid': pid,
-                'jar_name': jar_name,
-                'jar_path': jar_path or 'Unknown',
+                'service_name': service_name,
+                'jar_name': service_name,  # Keep for backward compatibility
+                'service_path': service_path or 'Unknown',
+                'jar_path': service_path or 'Unknown',  # Keep for backward compatibility
+                'file_type': file_type,
                 'status': status,
                 'cpu_percent': round(cpu_percent, 2),
                 'memory_mb': round(memory_mb, 2),
@@ -167,14 +223,14 @@ class ServiceMonitor:
             raise
     
     def stop_service(self, pid):
-        """Stop a Java JAR service"""
+        """Stop a service (JAR, EXE, BAT, SH)"""
         try:
             proc = psutil.Process(pid)
             
-            if not self._is_java_process(proc):
+            if not self._is_service_process(proc):
                 return {
                     'success': False,
-                    'error': 'Process is not a Java JAR service'
+                    'error': 'Process is not a monitored service'
                 }
             
             # Try graceful termination first
@@ -216,27 +272,71 @@ class ServiceMonitor:
                 'error': str(e)
             }
     
-    def start_service(self, jar_path, java_args=None):
-        """Start a Java JAR service as a detached process that survives parent termination"""
+    def start_service(self, service_path, args=None):
+        """Start a service (JAR, EXE, BAT, SH) as a detached process that survives parent termination"""
         try:
-            if not os.path.exists(jar_path):
+            if not os.path.exists(service_path):
                 return {
                     'success': False,
-                    'error': f'JAR file not found: {jar_path}'
+                    'error': f'Service file not found: {service_path}'
                 }
             
-            # Build command
-            cmd = ['java']
+            # Determine file type and build appropriate command
+            file_ext = os.path.splitext(service_path)[1].lower()
+            cmd = []
             
-            # Add Java arguments if provided
-            if java_args:
-                if isinstance(java_args, str):
-                    cmd.extend(java_args.split())
-                elif isinstance(java_args, list):
-                    cmd.extend(java_args)
-            
-            # Add JAR file
-            cmd.extend(['-jar', jar_path])
+            if file_ext == '.jar':
+                # Java JAR file
+                cmd = ['java']
+                if args:
+                    if isinstance(args, str):
+                        cmd.extend(args.split())
+                    elif isinstance(args, list):
+                        cmd.extend(args)
+                cmd.extend(['-jar', service_path])
+            elif file_ext == '.exe':
+                # Windows executable
+                cmd = [service_path]
+                if args:
+                    if isinstance(args, str):
+                        cmd.extend(args.split())
+                    elif isinstance(args, list):
+                        cmd.extend(args)
+            elif file_ext == '.bat':
+                # Windows batch file
+                if self.system == 'Windows':
+                    cmd = ['cmd', '/c', service_path]
+                else:
+                    return {
+                        'success': False,
+                        'error': 'BAT files are only supported on Windows'
+                    }
+                if args:
+                    if isinstance(args, str):
+                        cmd.extend(args.split())
+                    elif isinstance(args, list):
+                        cmd.extend(args)
+            elif file_ext == '.sh':
+                # Shell script (macOS/Linux)
+                if self.system == 'Windows':
+                    return {
+                        'success': False,
+                        'error': 'SH files are not supported on Windows'
+                    }
+                # Make sure script is executable
+                if not os.access(service_path, os.X_OK):
+                    os.chmod(service_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                cmd = ['/bin/bash', service_path] if self.system != 'Windows' else [service_path]
+                if args:
+                    if isinstance(args, str):
+                        cmd.extend(args.split())
+                    elif isinstance(args, list):
+                        cmd.extend(args)
+            else:
+                return {
+                    'success': False,
+                    'error': f'Unsupported file type: {file_ext}. Supported: .jar, .exe, .bat, .sh'
+                }
             
             # Prepare process arguments for detached execution
             process_kwargs = {}
@@ -268,17 +368,28 @@ class ServiceMonitor:
             # Check if process is still running
             if process.poll() is None:
                 # Process is running and detached
-                logger.info(f"Started detached Java service: PID {process.pid}, JAR: {jar_path}")
+                logger.info(f"Started detached service: PID {process.pid}, File: {service_path}, Type: {file_ext}")
                 return {
                     'success': True,
                     'pid': process.pid,
-                    'message': 'Service started successfully as detached process'
+                    'message': f'Service started successfully as detached process ({file_ext})'
                 }
             else:
                 # Process exited immediately (error)
+                error_msg = f'Service failed to start. '
+                if file_ext == '.jar':
+                    error_msg += 'Check Java installation and JAR file.'
+                elif file_ext == '.exe':
+                    error_msg += 'Check if executable is compatible with your system.'
+                elif file_ext == '.bat':
+                    error_msg += 'Check batch file syntax and dependencies.'
+                elif file_ext == '.sh':
+                    error_msg += 'Check script permissions and syntax.'
+                else:
+                    error_msg += 'Check file and system compatibility.'
                 return {
                     'success': False,
-                    'error': 'Service failed to start. Check Java installation and JAR file.'
+                    'error': error_msg
                 }
         except Exception as e:
             logger.error(f"Error starting service: {str(e)}")
