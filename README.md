@@ -27,6 +27,10 @@ A Python-based web application for monitoring and controlling services (JAR, EXE
 - Java Runtime Environment (JRE) installed (for running JAR files)
 - For `.sh` files on macOS/Linux: Ensure scripts have execute permissions
 
+## Design after running
+
+<img width="1606" height="871" alt="Screenshot 2025-12-02 at 5 34 55 PM" src="https://github.com/user-attachments/assets/2ee9103e-ee0e-4e03-86a2-0a975123c747" />
+
 ## Installation
 
 1. **Clone or download this repository**
