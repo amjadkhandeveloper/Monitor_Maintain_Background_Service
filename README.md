@@ -285,6 +285,7 @@ ProcessProgram/
 ├── app.py                 # Main Flask application
 ├── service_monitor.py     # Service monitoring and control logic
 ├── config_storage.py      # Persistent configuration storage
+├── constants.py           # ⚙️ DEFAULT VALUES - Change queue threshold here!
 ├── requirements.txt       # Python dependencies
 ├── README.md             # This file
 ├── STORAGE_INFO.md       # Configuration storage documentation
@@ -294,6 +295,28 @@ ProcessProgram/
 ├── start_monitor.sh      # macOS/Linux startup script
 └── start_monitor.bat      # Windows startup script
 ```
+
+## Changing Default Queue Threshold
+
+**To change the default MSMQ queue threshold (the number that triggers auto-restart):**
+
+1. **Open `constants.py` file**
+2. **Find this line** (around line 13):
+   ```python
+   DEFAULT_QUEUE_THRESHOLD = 10000  # Default MSMQ queue message threshold
+   ```
+3. **Change the number** to your desired value, for example:
+   ```python
+   DEFAULT_QUEUE_THRESHOLD = 25000  # Auto-restart when queue has 25,000+ messages
+   ```
+4. **Save the file**
+5. **Restart the application** - The new value will be used for all new services
+
+**Note:** 
+- This value is used as the default for new services
+- Individual services can still override this through the dashboard UI
+- Changes in `constants.py` only affect new services; existing services keep their configured values
+- The threshold can be set between 1 and 1,000,000 messages
 
 ## License
 

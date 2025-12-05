@@ -8,8 +8,18 @@ DEFAULT_PORT = 5001  # Default Flask port (changed from 5000 to avoid macOS AirP
 DEFAULT_HOST = '0.0.0.0'  # Listen on all interfaces
 
 # Auto-Restart Thresholds (Defaults)
+# ======================================
+# CHANGE THESE VALUES TO CUSTOMIZE AUTO-RESTART BEHAVIOR
+# After modifying, restart the application for changes to take effect
+# ======================================
+
 DEFAULT_CPU_THRESHOLD = 80.0  # Default CPU threshold percentage
 DEFAULT_MEMORY_THRESHOLD_MB = 1000.0  # Default memory threshold in MB (1 GB)
+
+# MSMQ Queue Threshold (Windows Only)
+# This is the default number of messages in MSMQ queue that triggers auto-restart
+# Example: If set to 25000, services will auto-restart when queue has >= 25000 messages
+# You can change this value and restart the program to use the new threshold
 DEFAULT_QUEUE_THRESHOLD = 10000  # Default MSMQ queue message threshold
 
 # Threshold Limits (Validation)
