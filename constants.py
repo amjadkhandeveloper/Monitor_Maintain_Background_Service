@@ -20,7 +20,7 @@ DEFAULT_MEMORY_THRESHOLD_MB = 1000.0  # Default memory threshold in MB (1 GB)
 # This is the default number of messages in MSMQ queue that triggers auto-restart
 # Example: If set to 25000, services will auto-restart when queue has >= 25000 messages
 # You can change this value and restart the program to use the new threshold
-DEFAULT_QUEUE_THRESHOLD = 10000  # Default MSMQ queue message threshold
+DEFAULT_QUEUE_THRESHOLD = 1000  # Default MSMQ queue message threshold
 
 # Threshold Limits (Validation)
 CPU_THRESHOLD_MIN = 1  # Minimum CPU threshold percentage
