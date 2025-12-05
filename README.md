@@ -19,7 +19,9 @@ A Python-based web application for monitoring and controlling services (JAR, EXE
   - Command line arguments
 - 🎨 **Modern Web Dashboard**: Beautiful, responsive web interface
 - ⚡ **Smart Auto-Refresh**: Dashboard refreshes every 20 seconds (pauses when editing)
-- 🔄 **Auto-Restart Feature**: Automatically restart services based on CPU or memory thresholds
+- 🔄 **Auto-Restart Feature**: Automatically restart services based on CPU, memory, or MSMQ queue thresholds
+- 📁 **Subfolder Support**: Supports organized folder structure where each subfolder contains its matching executable
+- 🔗 **MSMQ Queue Monitoring (Windows)**: Automatically matches MSMQ queue names to folder names and monitors message counts
 - 💾 **Persistent Storage**: All configurations saved to `monitor_config.json` and persist across restarts
 
 ## Requirements
@@ -78,20 +80,54 @@ A Python-based web application for monitoring and controlling services (JAR, EXE
 
 3. **Monitor your services**:
    - Set the folder path where your executable files are located
-   - View all available executable files in the left sidebar (30% width):
+   - **Folder Structure Support**: The application supports two folder structures:
+     
+     **Structure 1: Subfolders (Recommended)**
+     ```
+     Main Folder: C:\Program Files (x86)\Cellocator\Integration Package\
+     ├── CorrelatorMax_ITLFMS_5000\
+     │   └── CorrelatorMax_ITLFMS_5000.exe
+     ├── CorrelatorMax_ITLFMS_6000\
+     │   └── CorrelatorMax_ITLFMS_6000.exe
+     └── CorrelatorMax_ITLFMS_6001\
+         └── CorrelatorMax_ITLFMS_6001.jar
+     ```
+     - Each subfolder contains an executable file
+     - **Folder name must match executable filename** (without extension, case-insensitive)
+     - Example: Folder `CorrelatorMax_ITLFMS_5000` contains `CorrelatorMax_ITLFMS_5000.exe`
+     - Services execute from within their subfolder (working directory set automatically)
+     
+     **Structure 2: Direct Files (Backward Compatible)**
+     ```
+     Main Folder: C:\MyServices\
+     ├── Service1.jar
+     ├── Service2.exe
+     └── Service3.bat
+     ```
+     - Executable files directly in the main folder
+     - Still supported for backward compatibility
+   
+   - View all available executable files/subfolders in the left sidebar (30% width):
      - **Windows**: `.jar`, `.exe`, `.bat` files
      - **macOS/Linux**: `.jar`, `.sh` files
+     - Subfolders are displayed with their executables nested underneath
    - View running services in the right panel (70% width)
    - Click on any executable file in the sidebar to start it
    - File types are color-coded with badges (JAR, EXE, BAT, SH)
    - View CPU and memory utilization for each service
+   - **MSMQ Queue Monitoring (Windows Only)**:
+     - Queue names are automatically matched to folder names
+     - Example: Queue `correlatormax_6000` matches folder `CorrelatorMax_ITLFMS_6000`
+     - Queue message count is displayed for each running service
+     - Queue-based auto-restart available (independent of CPU/Memory thresholds)
    - Click "Details" to see comprehensive information about a service
    - Use "Stop" to terminate a service
    - Use "Restart" to restart a service
    - **Enable Auto-Restart**: Toggle auto-restart for any service
    - **Set CPU Threshold**: Configure when auto-restart should trigger (default: 80%)
    - **Set Memory Threshold**: Configure memory limit for auto-restart (default: 1000 MB)
-   - **Automatic Monitoring**: Services are checked every 30 seconds for high CPU or memory usage
+   - **Set Queue Threshold**: Configure MSMQ queue message limit for auto-restart (default: 10,000 messages, Windows only)
+   - **Automatic Monitoring**: Services are checked every 30 seconds for high CPU, memory, or queue message count
 
 ## Important: Detached Process Execution
 

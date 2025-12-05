@@ -161,12 +161,41 @@ def get_services():
             for service in services:
                 pid = service['pid']
                 service_name = service.get('service_name') or service.get('jar_name', 'Unknown')
+                service_path = service.get('service_path') or service.get('jar_path', '')
                 
-                # Add MSMQ queue information if available
+                # Match MSMQ queue to service by multiple methods:
+                # 1. Match by service name (executable name)
+                # 2. Match by service path (full executable path)
+                # 3. Match by folder name (if service path contains a known folder)
+                matched_queue = None
+                
+                # Method 1: Direct name match
                 if service_name in queues_info:
-                    service['msmq_queue'] = queues_info[service_name]
+                    matched_queue = queues_info[service_name]
                 else:
-                    service['msmq_queue'] = None
+                    # Method 2: Match by service path
+                    if service_path:
+                        # Normalize paths for comparison
+                        service_path_normalized = os.path.normpath(service_path).lower()
+                        for exe_name, queue_info in queues_info.items():
+                            exe_path_normalized = os.path.normpath(queue_info.get('executable_path', '')).lower()
+                            if service_path_normalized == exe_path_normalized:
+                                matched_queue = queue_info
+                                break
+                        
+                        # Method 3: Match by folder name (extract folder from path)
+                        if not matched_queue:
+                            # Try to match by folder name from service path
+                            for folder_name, folder_info in folder_executables_map.items():
+                                folder_path_normalized = os.path.normpath(folder_info['subfolder_path']).lower()
+                                if folder_path_normalized in service_path_normalized:
+                                    # Found matching folder, now find its queue
+                                    exe_name = folder_info['executable_name']
+                                    if exe_name in queues_info:
+                                        matched_queue = queues_info[exe_name]
+                                        break
+                
+                service['msmq_queue'] = matched_queue
                 
                 # Check in-memory config first (for active processes)
                 if pid in auto_restart_config:
