@@ -1141,5 +1141,7 @@ if __name__ == '__main__':
     
     print("Starting Java JAR Service Monitor...")
     print(f"Access the dashboard at: http://localhost:{port}")
-    app.run(debug=True, host='0.0.0.0', port=port)
+    # Debug mode disabled for production (set debug=False or use environment variable)
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)
 
