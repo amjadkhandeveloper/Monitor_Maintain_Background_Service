@@ -136,6 +136,31 @@
             list-style: none;
         }
 
+        .subfolders-list {
+            margin-top: 10px;
+        }
+
+        .subfolder-item {
+            margin-bottom: 15px;
+            padding: 12px;
+            background: #ffffff;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .subfolder-name {
+            font-size: 1.1em;
+            color: #333;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .subfolder-executables {
+            margin-left: 10px;
+        }
+
         .jar-item {
             padding: 12px;
             margin-bottom: 8px;
@@ -826,13 +851,51 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    displayJarFiles(data.jar_files);
+                    // New structure: data.subfolders contains subfolders with executables
+                    if (data.subfolders) {
+                        displaySubfolders(data.subfolders);
+                    } else if (data.jar_files) {
+                        // Backward compatibility: old structure with direct files
+                        displayJarFiles(data.jar_files);
+                    } else {
+                        container.innerHTML = '<div class="no-jars">No executable files found</div>';
+                    }
                 } else {
                     container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
                 }
             } catch (error) {
-                container.innerHTML = `<div class="error">Error loading JAR files: ${error.message}</div>`;
+                container.innerHTML = `<div class="error">Error loading executable files: ${error.message}</div>`;
             }
+        }
+
+        function displaySubfolders(subfolders) {
+            const container = document.getElementById('jarListContainer');
+            
+            if (subfolders.length === 0) {
+                container.innerHTML = '<div class="no-jars">No subfolders with matching executables found</div>';
+                return;
+            }
+            
+            let html = '<div class="subfolders-list">';
+            subfolders.forEach(subfolder => {
+                html += `<div class="subfolder-item">`;
+                html += `<div class="subfolder-name"><strong>${escapeHtml(subfolder.folder_name)}</strong></div>`;
+                html += `<div class="subfolder-executables">`;
+                subfolder.executables.forEach(exec => {
+                    const typeClass = `type-${(exec.type || exec.extension || 'jar').toLowerCase().replace('.', '')}`;
+                    const typeLabel = (exec.type || exec.extension || 'JAR').toUpperCase().replace('.', '');
+                    html += `<div class="executable-item jar-item" onclick="startService('${escapeHtml(exec.name)}', '${escapeHtml(exec.subfolder_path)}')">`;
+                    html += `<div class="jar-item-name">`;
+                    html += `${escapeHtml(exec.name)}`;
+                    html += `<span class="jar-item-type ${typeClass}">${typeLabel}</span>`;
+                    html += `</div>`;
+                    html += `<div class="jar-item-size">${exec.size_mb} MB</div>`;
+                    html += `</div>`;
+                });
+                html += `</div></div>`;
+            });
+            html += '</div>';
+            container.innerHTML = html;
         }
 
         function displayJarFiles(jarFiles) {
@@ -862,15 +925,27 @@
             `;
         }
 
-        async function startService(fileName) {
+        async function startService(fileName, subfolderPath) {
             if (!currentFolderPath) {
                 showMessage('Please set folder path first', 'error');
                 return;
             }
 
-            // Handle path separator for different OS
-            const separator = currentFolderPath.includes('\\') ? '\\' : '/';
-            const servicePath = currentFolderPath + (currentFolderPath.endsWith('/') || currentFolderPath.endsWith('\\') ? '' : separator) + fileName;
+            // If subfolderPath is provided, use it; otherwise use old logic for backward compatibility
+            let servicePath;
+            let workingDirectory;
+            
+            if (subfolderPath) {
+                // New structure: subfolderPath contains the subfolder, fileName is the executable
+                const separator = subfolderPath.includes('\\') ? '\\' : '/';
+                servicePath = subfolderPath + (subfolderPath.endsWith('/') || subfolderPath.endsWith('\\') ? '' : separator) + fileName;
+                workingDirectory = subfolderPath;
+            } else {
+                // Old structure: direct file in main folder
+                const separator = currentFolderPath.includes('\\') ? '\\' : '/';
+                servicePath = currentFolderPath + (currentFolderPath.endsWith('/') || currentFolderPath.endsWith('\\') ? '' : separator) + fileName;
+                workingDirectory = null; // Will default to executable's directory
+            }
             
             try {
                 const response = await fetch('/api/service/start', {
@@ -878,7 +953,10 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ jar_path: servicePath })  // Keep 'jar_path' for backward compatibility
+                    body: JSON.stringify({ 
+                        jar_path: servicePath,
+                        working_directory: workingDirectory
+                    })
                 });
                 
                 const data = await response.json();

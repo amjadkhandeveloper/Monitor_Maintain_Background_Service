@@ -272,14 +272,26 @@ class ServiceMonitor:
                 'error': str(e)
             }
     
-    def start_service(self, service_path, args=None):
-        """Start a service (JAR, EXE, BAT, SH) as a detached process that survives parent termination"""
+    def start_service(self, service_path, args=None, working_directory=None):
+        """Start a service (JAR, EXE, BAT, SH) as a detached process that survives parent termination
+        
+        Args:
+            service_path: Full path to the executable file
+            args: Optional arguments to pass to the service
+            working_directory: Optional working directory (defaults to executable's directory)
+        """
         try:
             if not os.path.exists(service_path):
                 return {
                     'success': False,
                     'error': f'Service file not found: {service_path}'
                 }
+            
+            # Set working directory: use provided directory, or executable's directory
+            if working_directory:
+                cwd = working_directory
+            else:
+                cwd = os.path.dirname(os.path.abspath(service_path))
             
             # Determine file type and build appropriate command
             file_ext = os.path.splitext(service_path)[1].lower()
@@ -358,7 +370,8 @@ class ServiceMonitor:
                 process_kwargs['stdin'] = subprocess.DEVNULL
                 process_kwargs['start_new_session'] = True  # Creates new session (detached)
             
-            # Start the detached process
+            # Start the detached process with working directory
+            process_kwargs['cwd'] = cwd
             process = subprocess.Popen(cmd, **process_kwargs)
             
             # Wait a moment to check if it started successfully

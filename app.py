@@ -84,8 +84,9 @@ def get_services():
     try:
         services = monitor.get_all_services()
         
-        # Get executable files from folder for MSMQ matching
-        executable_files = []
+        # Get subfolders and executables for MSMQ matching
+        # Structure: {folder_name: {'executable_path': path, 'subfolder_path': path}}
+        folder_executables_map = {}
         if jar_folder_path and os.path.isdir(jar_folder_path):
             try:
                 system = platform.system()
@@ -96,12 +97,26 @@ def get_services():
                 }
                 extensions = supported_exts.get(system, ['.jar', '.exe', '.bat', '.sh'])
                 
-                for filename in os.listdir(jar_folder_path):
-                    file_ext = os.path.splitext(filename)[1].lower()
-                    if file_ext in extensions:
-                        file_path = os.path.join(jar_folder_path, filename)
-                        if os.path.isfile(file_path):
-                            executable_files.append(file_path)
+                # Scan subfolders
+                for item_name in os.listdir(jar_folder_path):
+                    item_path = os.path.join(jar_folder_path, item_name)
+                    if os.path.isdir(item_path):
+                        # Look for executable files inside this subfolder
+                        folder_name_without_ext = os.path.splitext(item_name)[0]
+                        for filename in os.listdir(item_path):
+                            file_ext = os.path.splitext(filename)[1].lower()
+                            if file_ext in extensions:
+                                file_path = os.path.join(item_path, filename)
+                                if os.path.isfile(file_path):
+                                    file_name_without_ext = os.path.splitext(filename)[0]
+                                    # Match if filename matches folder name
+                                    if file_name_without_ext.lower() == folder_name_without_ext.lower():
+                                        folder_executables_map[folder_name_without_ext] = {
+                                            'executable_path': file_path,
+                                            'subfolder_path': item_path,
+                                            'executable_name': filename
+                                        }
+                                        break
             except Exception as e:
                 logger.warning(f"Error getting executable files for MSMQ matching: {str(e)}")
         
@@ -114,14 +129,28 @@ def get_services():
                     queue_name = queue.get('Name', '')
                     message_count = queue.get('MessageCount', 0)
                     
-                    # Match queue to executable
-                    matched_exe = msmq_monitor.match_queue_to_executable(queue_name, executable_files)
-                    if matched_exe:
-                        exe_name = os.path.basename(matched_exe)
+                    # Extract simple queue name (match to folder name)
+                    queue_simple_name = queue_name
+                    if '\\' in queue_simple_name:
+                        queue_simple_name = queue_simple_name.split('\\')[-1]
+                    queue_simple_name = queue_simple_name.replace('private$\\', '').replace('public$\\', '')
+                    queue_simple_name = os.path.splitext(queue_simple_name)[0]  # Remove extension if any
+                    
+                    # Match queue name to folder name (case-insensitive)
+                    matched_folder = None
+                    for folder_name, folder_info in folder_executables_map.items():
+                        if folder_name.lower() == queue_simple_name.lower():
+                            matched_folder = folder_info
+                            break
+                    
+                    if matched_folder:
+                        exe_name = matched_folder['executable_name']
                         queues_info[exe_name] = {
                             'queue_name': queue_name,
                             'message_count': message_count,
-                            'executable_path': matched_exe
+                            'executable_path': matched_folder['executable_path'],
+                            'subfolder_path': matched_folder['subfolder_path'],
+                            'folder_name': folder_name
                         }
             except Exception as e:
                 logger.error(f"Error getting MSMQ queues: {str(e)}")
@@ -222,10 +251,11 @@ def stop_service(pid):
 
 @app.route('/api/service/<int:pid>/start', methods=['POST'])
 def start_service(pid):
-    """Start a Java JAR service (requires jar_path in request body)"""
+    """Start a Java JAR service (requires jar_path in request body, optionally working_directory)"""
     try:
         data = request.get_json()
         jar_path = data.get('jar_path') if data else None
+        working_directory = data.get('working_directory') if data else None
         
         if not jar_path:
             return jsonify({
@@ -233,7 +263,7 @@ def start_service(pid):
                 'error': 'jar_path is required'
             }), 400
         
-        result = monitor.start_service(jar_path)
+        result = monitor.start_service(jar_path, working_directory=working_directory)
         if result['success']:
             return jsonify({
                 'success': True,
@@ -381,23 +411,56 @@ def list_jar_files():
         system = platform.system()
         extensions = SUPPORTED_EXTENSIONS.get(system, ['.jar', '.exe', '.bat', '.sh'])
         
-        executable_files = []
+        subfolders_with_executables = []
         try:
-            for filename in os.listdir(folder):
-                file_ext = os.path.splitext(filename)[1].lower()
-                if file_ext in extensions:
-                    file_path = os.path.join(folder, filename)
-                    if os.path.isfile(file_path):  # Only include files, not directories
-                        file_size = os.path.getsize(file_path)
-                        file_type = file_ext.upper().replace('.', '')
-                        executable_files.append({
-                            'name': filename,
-                            'path': file_path,
-                            'size_mb': round(file_size / (1024 * 1024), 2),
-                            'type': file_type,
-                            'extension': file_ext
+            # Scan subfolders in the main folder
+            for item_name in os.listdir(folder):
+                item_path = os.path.join(folder, item_name)
+                
+                # Only process directories (subfolders)
+                if os.path.isdir(item_path):
+                    # Look for executable files inside this subfolder
+                    executables_in_subfolder = []
+                    try:
+                        for filename in os.listdir(item_path):
+                            file_ext = os.path.splitext(filename)[1].lower()
+                            if file_ext in extensions:
+                                file_path = os.path.join(item_path, filename)
+                                if os.path.isfile(file_path):
+                                    # Check if filename matches folder name (without extension)
+                                    folder_name_without_ext = os.path.splitext(item_name)[0]
+                                    file_name_without_ext = os.path.splitext(filename)[0]
+                                    
+                                    # Match if filename matches folder name (case-insensitive)
+                                    if file_name_without_ext.lower() == folder_name_without_ext.lower():
+                                        file_size = os.path.getsize(file_path)
+                                        file_type = file_ext.upper().replace('.', '')
+                                        executables_in_subfolder.append({
+                                            'name': filename,
+                                            'path': file_path,
+                                            'subfolder_path': item_path,  # Working directory for execution
+                                            'size_mb': round(file_size / (1024 * 1024), 2),
+                                            'type': file_type,
+                                            'extension': file_ext
+                                        })
+                    except PermissionError:
+                        logger.warning(f"Permission denied accessing subfolder: {item_path}")
+                        continue
+                    except Exception as e:
+                        logger.warning(f"Error scanning subfolder {item_path}: {str(e)}")
+                        continue
+                    
+                    # Only include subfolders that have matching executables
+                    if executables_in_subfolder:
+                        subfolders_with_executables.append({
+                            'folder_name': item_name,
+                            'folder_path': item_path,
+                            'executables': executables_in_subfolder
                         })
-            executable_files.sort(key=lambda x: (x['type'], x['name']))
+            
+            # Sort by folder name
+            subfolders_with_executables.sort(key=lambda x: x['folder_name'])
+            
         except PermissionError:
             return jsonify({
                 'success': False,
@@ -406,10 +469,8 @@ def list_jar_files():
         
         return jsonify({
             'success': True,
-            'jar_files': executable_files,  # Keep 'jar_files' key for backward compatibility
-            'executable_files': executable_files,  # New key name
-            'folder_path': folder,
-            'supported_types': extensions
+            'subfolders': subfolders_with_executables,
+            'folder_path': folder
         })
     except Exception as e:
         logger.error(f"Error listing JAR files: {str(e)}")
@@ -419,22 +480,50 @@ def list_jar_files():
         }), 500
 
 
-def restart_service_internal(pid, jar_name=None, delay_seconds=RESTART_DELAY_CPU_MEMORY):
+def restart_service_internal(pid, jar_name=None, delay_seconds=RESTART_DELAY_CPU_MEMORY, working_directory=None):
     """Internal function to restart a service with configurable delay"""
     global jar_folder_path
     
     # Determine jar_path: use jar_name + folder_path if provided, otherwise use existing jar_path
     jar_path = None
+    working_dir = working_directory
     
     if jar_name and jar_folder_path:
-        # Use folder path + jar name
-        jar_path = os.path.join(jar_folder_path, jar_name)
-        # Normalize path separators
-        jar_path = os.path.normpath(jar_path)
-        if not os.path.exists(jar_path):
+        # Search in subfolders: look for subfolder matching jar_name, then find executable inside
+        jar_name_without_ext = os.path.splitext(jar_name)[0]
+        
+        # Check if main folder has subfolders
+        if os.path.isdir(jar_folder_path):
+            for item_name in os.listdir(jar_folder_path):
+                item_path = os.path.join(jar_folder_path, item_name)
+                if os.path.isdir(item_path):
+                    # Check if folder name matches jar_name (without extension)
+                    folder_name_without_ext = os.path.splitext(item_name)[0]
+                    if folder_name_without_ext.lower() == jar_name_without_ext.lower():
+                        # Found matching subfolder, look for executable inside
+                        system = platform.system()
+                        extensions = SUPPORTED_EXTENSIONS.get(system, ['.jar', '.exe', '.bat', '.sh'])
+                        for filename in os.listdir(item_path):
+                            file_ext = os.path.splitext(filename)[1].lower()
+                            if file_ext in extensions:
+                                file_path = os.path.join(item_path, filename)
+                                file_name_without_ext = os.path.splitext(filename)[0]
+                                if file_name_without_ext.lower() == jar_name_without_ext.lower():
+                                    jar_path = file_path
+                                    working_dir = item_path  # Use subfolder as working directory
+                                    break
+                        if jar_path:
+                            break
+        
+        # Fallback: try direct path in main folder (backward compatibility)
+        if not jar_path:
+            jar_path = os.path.join(jar_folder_path, jar_name)
+            jar_path = os.path.normpath(jar_path)
+        
+        if not jar_path or not os.path.exists(jar_path):
             return {
                 'success': False,
-                'error': f'JAR file not found: {jar_path}'
+                'error': f'Executable file not found for: {jar_name}. Searched in subfolders of {jar_folder_path}'
             }
     else:
         # Fallback to getting jar_path from running service
@@ -449,8 +538,20 @@ def restart_service_internal(pid, jar_name=None, delay_seconds=RESTART_DELAY_CPU
         if not jar_path:
             return {
                 'success': False,
-                'error': 'Could not determine JAR path for service. Please set folder path and provide jar_name.'
+                'error': 'Could not determine executable path for service. Please set folder path and provide jar_name.'
             }
+        
+        # Try to determine working directory from jar_path
+        if not working_dir and jar_path:
+            # If jar_path is in a subfolder, use that subfolder as working directory
+            if jar_folder_path and jar_path.startswith(jar_folder_path):
+                # Check if it's in a subfolder
+                relative_path = os.path.relpath(jar_path, jar_folder_path)
+                if os.path.sep in relative_path:
+                    # It's in a subfolder
+                    subfolder = os.path.join(jar_folder_path, relative_path.split(os.path.sep)[0])
+                    if os.path.isdir(subfolder):
+                        working_dir = subfolder
     
     # Stop the service
     stop_result = monitor.stop_service(pid)
@@ -464,8 +565,8 @@ def restart_service_internal(pid, jar_name=None, delay_seconds=RESTART_DELAY_CPU
     logger.info(f"Waiting {delay_seconds} seconds before restarting service {pid}...")
     time.sleep(delay_seconds)
     
-    # Start the service
-    start_result = monitor.start_service(jar_path)
+    # Start the service with working directory
+    start_result = monitor.start_service(jar_path, working_directory=working_dir)
     if start_result['success']:
         return {
             'success': True,
@@ -768,8 +869,8 @@ def auto_restart_monitor():
         try:
             time.sleep(AUTO_RESTART_CHECK_INTERVAL)  # Check every 30 seconds
             
-            # Get executable files for MSMQ matching
-            executable_files = []
+            # Get subfolders and executables for MSMQ matching
+            folder_executables_map = {}
             if jar_folder_path and os.path.isdir(jar_folder_path):
                 try:
                     system = platform.system()
@@ -780,17 +881,30 @@ def auto_restart_monitor():
                     }
                     extensions = supported_exts.get(system, ['.jar', '.exe', '.bat', '.sh'])
                     
-                    for filename in os.listdir(jar_folder_path):
-                        file_ext = os.path.splitext(filename)[1].lower()
-                        if file_ext in extensions:
-                            file_path = os.path.join(jar_folder_path, filename)
-                            if os.path.isfile(file_path):
-                                executable_files.append(file_path)
+                    # Scan subfolders
+                    for item_name in os.listdir(jar_folder_path):
+                        item_path = os.path.join(jar_folder_path, item_name)
+                        if os.path.isdir(item_path):
+                            folder_name_without_ext = os.path.splitext(item_name)[0]
+                            for filename in os.listdir(item_path):
+                                file_ext = os.path.splitext(filename)[1].lower()
+                                if file_ext in extensions:
+                                    file_path = os.path.join(item_path, filename)
+                                    if os.path.isfile(file_path):
+                                        file_name_without_ext = os.path.splitext(filename)[0]
+                                        if file_name_without_ext.lower() == folder_name_without_ext.lower():
+                                            folder_executables_map[folder_name_without_ext] = {
+                                                'executable_path': file_path,
+                                                'subfolder_path': item_path,
+                                                'executable_name': filename
+                                            }
+                                            break
                 except Exception as e:
                     logger.warning(f"Error getting executable files for MSMQ: {str(e)}")
             
             # Get MSMQ queue information (Windows only)
             queue_message_counts = {}  # {executable_name: message_count}
+            queue_folder_map = {}  # {executable_name: folder_name} for restart
             if msmq_available and platform.system() == 'Windows':
                 try:
                     all_queues = msmq_monitor.get_all_queues()
@@ -798,11 +912,20 @@ def auto_restart_monitor():
                         queue_name = queue.get('Name', '')
                         message_count = queue.get('MessageCount', 0)
                         
-                        # Match queue to executable
-                        matched_exe = msmq_monitor.match_queue_to_executable(queue_name, executable_files)
-                        if matched_exe:
-                            exe_name = os.path.basename(matched_exe)
-                            queue_message_counts[exe_name] = message_count
+                        # Extract simple queue name (match to folder name)
+                        queue_simple_name = queue_name
+                        if '\\' in queue_simple_name:
+                            queue_simple_name = queue_simple_name.split('\\')[-1]
+                        queue_simple_name = queue_simple_name.replace('private$\\', '').replace('public$\\', '')
+                        queue_simple_name = os.path.splitext(queue_simple_name)[0]
+                        
+                        # Match queue name to folder name
+                        for folder_name, folder_info in folder_executables_map.items():
+                            if folder_name.lower() == queue_simple_name.lower():
+                                exe_name = folder_info['executable_name']
+                                queue_message_counts[exe_name] = message_count
+                                queue_folder_map[exe_name] = folder_name
+                                break
                 except Exception as e:
                     logger.error(f"Error getting MSMQ queues in monitor: {str(e)}")
             
@@ -851,6 +974,11 @@ def auto_restart_monitor():
                             # Restart in a separate thread
                             def queue_restart_thread():
                                 jar_name = service_name
+                                # Get folder name from queue_folder_map if available
+                                folder_name = queue_folder_map.get(service_name)
+                                if folder_name:
+                                    # Use folder name to find executable in subfolder
+                                    jar_name = folder_name
                                 result = restart_service_internal(pid, jar_name, delay_seconds=RESTART_DELAY_QUEUE)
                                 
                                 if result['success']:
