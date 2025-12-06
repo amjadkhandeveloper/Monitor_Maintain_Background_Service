@@ -271,10 +271,12 @@ def get_services():
                     if service_filename_from_path:
                         service_filename = service_filename_from_path
             
-            # Use process_name if available (this is what Task Manager shows)
+            # Use process_name as primary if available (this is what Task Manager shows)
+            # But keep service_filename as fallback for matching
             if process_name:
                 # Process name might be the most accurate (e.g., "CorrelatorMax.exe")
-                service_filename = process_name
+                # But we'll match against BOTH process_name AND service_filename
+                pass  # We'll use process_name in matching below
             
             # Normalize for comparison
             service_filename_lower = service_filename.lower()
@@ -305,25 +307,39 @@ def get_services():
                 shortcut_name_no_ext = os.path.splitext(shortcut_name_lower)[0]
                 
                 # Match by filename (most important - works regardless of execution path)
-                # Try multiple matching strategies including shortcut names and process names
-                if (service_filename_lower == exe_filename_lower or
+                # Try ALL matching strategies: service_filename, service_name, AND process_name
+                # This ensures we don't miss any matches that were working before
+                match_found = (
+                    # Match by service_filename (from path or name)
+                    service_filename_lower == exe_filename_lower or
                     service_filename_no_ext == exe_filename_no_ext or
                     service_filename_no_ext == exe_name_lower or
                     service_filename_no_ext == shortcut_name_no_ext or
+                    service_filename_lower == shortcut_name_lower or
+                    # Match by service_name (original name)
                     service_name_lower == exe_filename_lower or
                     service_name_no_ext == exe_filename_no_ext or
                     service_name_no_ext == exe_name_lower or
                     service_name_no_ext == shortcut_name_no_ext or
-                    service_filename_lower == shortcut_name_lower or
                     service_name_lower == shortcut_name_lower or
-                    # Match by process name (what Task Manager shows)
-                    (process_name_lower and (process_name_lower == exe_filename_lower or
-                                             process_name_no_ext == exe_filename_no_ext or
-                                             process_name_no_ext == exe_name_lower or
-                                             process_name_no_ext == shortcut_name_no_ext or
-                                             process_name_lower == shortcut_name_lower))):
+                    # Match by process_name (what Task Manager shows) - ADDITIONAL matching, not replacement
+                    (process_name_lower and (
+                        process_name_lower == exe_filename_lower or
+                        process_name_no_ext == exe_filename_no_ext or
+                        process_name_no_ext == exe_name_lower or
+                        process_name_no_ext == shortcut_name_no_ext or
+                        process_name_lower == shortcut_name_lower
+                    ))
+                )
+                
+                if match_found:
                     matches = True
-                    logger.info(f"✓ Matched service '{service_name}' (process: '{process_name}', filename: '{service_filename}') to executable '{exe_filename}' (shortcut: '{shortcut_name}') in folder")
+                    match_type = []
+                    if service_filename_lower == exe_filename_lower or service_filename_no_ext == exe_filename_no_ext:
+                        match_type.append('filename')
+                    if process_name_lower and (process_name_lower == exe_filename_lower or process_name_no_ext == exe_filename_no_ext):
+                        match_type.append('process_name')
+                    logger.info(f"✓ Matched service '{service_name}' (process: '{process_name}', filename: '{service_filename}') to executable '{exe_filename}' (shortcut: '{shortcut_name}') by: {', '.join(match_type) if match_type else 'path/name'}")
                     break
             
             # Also check path match (for services executed from the configured folder)
@@ -1304,23 +1320,32 @@ def auto_restart_monitor():
                     shortcut_name_no_ext = os.path.splitext(shortcut_name_lower)[0]
                     
                     # Match by filename (most important - works regardless of execution path)
-                    # Also match by process name (what Task Manager shows)
-                    if (service_filename_lower == exe_filename_lower or
+                    # Try ALL matching strategies: service_filename, service_name, AND process_name
+                    # This ensures we don't miss any matches that were working before
+                    match_found = (
+                        # Match by service_filename (from path or name)
+                        service_filename_lower == exe_filename_lower or
                         service_filename_no_ext == exe_filename_no_ext or
                         service_filename_no_ext == exe_name_lower or
                         service_filename_no_ext == shortcut_name_no_ext or
+                        service_filename_lower == shortcut_name_lower or
+                        # Match by service_name (original name)
                         service_name_lower == exe_filename_lower or
                         service_name_no_ext == exe_filename_no_ext or
                         service_name_no_ext == exe_name_lower or
                         service_name_no_ext == shortcut_name_no_ext or
-                        service_filename_lower == shortcut_name_lower or
                         service_name_lower == shortcut_name_lower or
-                        # Match by process name (what Task Manager shows)
-                        (process_name_lower and (process_name_lower == exe_filename_lower or
-                                                 process_name_no_ext == exe_filename_no_ext or
-                                                 process_name_no_ext == exe_name_lower or
-                                                 process_name_no_ext == shortcut_name_no_ext or
-                                                 process_name_lower == shortcut_name_lower))):
+                        # Match by process_name (what Task Manager shows) - ADDITIONAL matching, not replacement
+                        (process_name_lower and (
+                            process_name_lower == exe_filename_lower or
+                            process_name_no_ext == exe_filename_no_ext or
+                            process_name_no_ext == exe_name_lower or
+                            process_name_no_ext == shortcut_name_no_ext or
+                            process_name_lower == shortcut_name_lower
+                        ))
+                    )
+                    
+                    if match_found:
                         matches = True
                         break
                 
