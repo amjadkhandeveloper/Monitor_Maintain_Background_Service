@@ -222,10 +222,14 @@ def get_services():
         # Get all running services
         all_services = monitor.get_all_services()
         logger.info(f"Found {len(all_services)} total running services (JAR/EXE/BAT/SH)")
+        if all_services:
+            logger.info(f"Sample running services: {[(s.get('service_name') or s.get('jar_name'), s.get('service_path') or s.get('jar_path')) for s in all_services[:5]]}")
         
         # Get all executables from configured folder (both direct files and subfolders)
         folder_executables_map = get_all_executables_from_folder(jar_folder_path)
-        logger.info(f"Found {len(folder_executables_map)} executables in folder '{jar_folder_path}': {list(folder_executables_map.keys())}")
+        logger.info(f"Found {len(folder_executables_map)} executables in folder '{jar_folder_path}'")
+        if folder_executables_map:
+            logger.info(f"Executable names in folder: {[(name, info.get('executable_name'), info.get('shortcut_name')) for name, info in list(folder_executables_map.items())[:5]]}")
         
         # Build a set of executable names and paths to filter by
         # We'll match services to these executables
@@ -277,15 +281,25 @@ def get_services():
                 exe_filename_no_ext = os.path.splitext(exe_filename_lower)[0]
                 exe_name_lower = exe_name.lower()
                 
+                # Get shortcut name if available (for shortcuts, this is the key name)
+                shortcut_name = exe_info.get('shortcut_name') or exe_name
+                shortcut_name_lower = shortcut_name.lower()
+                shortcut_name_no_ext = os.path.splitext(shortcut_name_lower)[0]
+                
                 # Match by filename (most important - works regardless of execution path)
+                # Try multiple matching strategies including shortcut names
                 if (service_filename_lower == exe_filename_lower or
                     service_filename_no_ext == exe_filename_no_ext or
                     service_filename_no_ext == exe_name_lower or
+                    service_filename_no_ext == shortcut_name_no_ext or
                     service_name_lower == exe_filename_lower or
                     service_name_no_ext == exe_filename_no_ext or
-                    service_name_no_ext == exe_name_lower):
+                    service_name_no_ext == exe_name_lower or
+                    service_name_no_ext == shortcut_name_no_ext or
+                    service_filename_lower == shortcut_name_lower or
+                    service_name_lower == shortcut_name_lower):
                     matches = True
-                    logger.debug(f"Matched service '{service_name}' (filename: '{service_filename}') to executable '{exe_filename}' in folder")
+                    logger.info(f"✓ Matched service '{service_name}' (filename: '{service_filename}') to executable '{exe_filename}' (shortcut: '{shortcut_name}') in folder")
                     break
             
             # Also check path match (for services executed from the configured folder)
