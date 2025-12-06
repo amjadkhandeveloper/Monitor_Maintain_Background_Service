@@ -561,6 +561,7 @@ def start_service_direct():
     try:
         data = request.get_json()
         jar_path = data.get('jar_path') if data else None
+        working_directory = data.get('working_directory') if data else None
         
         if not jar_path:
             return jsonify({
@@ -568,7 +569,12 @@ def start_service_direct():
                 'error': 'jar_path is required'
             }), 400
         
-        result = monitor.start_service(jar_path)
+        # Normalize the path to ensure proper formatting
+        jar_path = os.path.normpath(jar_path)
+        if working_directory:
+            working_directory = os.path.normpath(working_directory)
+        
+        result = monitor.start_service(jar_path, working_directory=working_directory)
         if result['success']:
             return jsonify({
                 'success': True,
@@ -1066,9 +1072,9 @@ def set_queue_threshold(pid):
                 'cpu_threshold': existing_config.get('cpu_threshold', DEFAULT_CPU_THRESHOLD),
                 'memory_threshold_mb': existing_config.get('memory_threshold_mb', DEFAULT_MEMORY_THRESHOLD_MB),
                 'queue_threshold': int(queue_threshold),
-                    'jar_name': jar_name or existing_config.get('jar_name'),
-                    'restarting': existing_config.get('restarting', False)
-                }
+                'jar_name': jar_name or existing_config.get('jar_name'),
+                'restarting': existing_config.get('restarting', False)
+            }
             
             # Store in memory (by PID)
             auto_restart_config[pid] = config_data

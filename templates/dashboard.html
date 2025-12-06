@@ -1034,8 +1034,16 @@
             
             if (executablePath) {
                 // Use the provided executable path (from shortcut target or direct file)
-                servicePath = executablePath;
-                workingDirectory = subfolderPath || null;
+                // Ensure path is properly formatted (backslashes preserved for Windows)
+                servicePath = executablePath.replace(/\//g, '\\'); // Normalize to Windows path
+                // Extract working directory from executable path if not provided
+                if (!subfolderPath && servicePath.includes('\\')) {
+                    const pathParts = servicePath.split('\\');
+                    pathParts.pop(); // Remove filename
+                    workingDirectory = pathParts.join('\\');
+                } else {
+                    workingDirectory = subfolderPath || null;
+                }
             } else if (subfolderPath) {
                 // New structure: subfolderPath contains the subfolder, fileName is the executable
                 const separator = subfolderPath.includes('\\') ? '\\' : '/';
