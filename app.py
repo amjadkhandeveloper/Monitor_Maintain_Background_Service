@@ -88,6 +88,7 @@ def get_all_executables_from_folder(folder_path):
         extensions = supported_exts.get(system, ['.jar', '.exe', '.bat', '.sh'])
         
         # First, scan for files directly in the folder
+        direct_files_found = 0
         for filename in os.listdir(folder_path):
             file_path = os.path.join(folder_path, filename)
             if os.path.isfile(file_path):
@@ -100,6 +101,10 @@ def get_all_executables_from_folder(folder_path):
                         'subfolder_path': None,  # Directly in folder
                         'folder_name': None
                     }
+                    direct_files_found += 1
+                    logger.debug(f"Found direct executable: {filename} in {folder_path}")
+        
+        logger.info(f"Found {direct_files_found} executable files directly in folder")
         
         # Then, scan subfolders (for backward compatibility)
         for item_name in os.listdir(folder_path):
@@ -132,8 +137,9 @@ def get_all_executables_from_folder(folder_path):
                                     'folder_name': folder_name_without_ext
                                 }
     except Exception as e:
-        logger.warning(f"Error scanning folder for executables: {str(e)}")
+        logger.error(f"Error scanning folder for executables: {str(e)}", exc_info=True)
     
+    logger.info(f"Total executables found: {len(executables_map)} (direct files + subfolders)")
     return executables_map
 
 
@@ -161,9 +167,11 @@ def get_services():
     try:
         # Get all running services
         all_services = monitor.get_all_services()
+        logger.info(f"Found {len(all_services)} total running services (JAR/EXE/BAT/SH)")
         
         # Get all executables from configured folder (both direct files and subfolders)
         folder_executables_map = get_all_executables_from_folder(jar_folder_path)
+        logger.info(f"Found {len(folder_executables_map)} executables in folder '{jar_folder_path}': {list(folder_executables_map.keys())}")
         
         # Build a set of executable names and paths to filter by
         # We'll match services to these executables
@@ -238,8 +246,11 @@ def get_services():
             
             if matches:
                 services.append(service)
+                logger.debug(f"✓ Matched service '{service_name}' (filename: '{service_filename}', path: '{service_path}')")
             else:
-                logger.debug(f"Service '{service_name}' (filename: '{service_filename}', path: '{service_path}') did not match any executable in folder")
+                logger.debug(f"✗ Service '{service_name}' (filename: '{service_filename}', path: '{service_path}') did not match any executable in folder")
+        
+        logger.info(f"Filtered to {len(services)} services matching executables in folder '{jar_folder_path}'")
         
         # Get MSMQ queue information (Windows only)
         queues_info = {}
