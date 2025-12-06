@@ -805,8 +805,14 @@
             refreshInterval = setInterval(() => {
                 if (!isUserEditing) {
                     loadServices();
+                    // Only refresh jar files list if folder path is set and user is not interacting
                     if (currentFolderPath) {
-                        loadJarFiles();
+                        // Use a small delay to avoid clearing the list during rapid refreshes
+                        setTimeout(() => {
+                            if (!isUserEditing && currentFolderPath) {
+                                loadJarFiles();
+                            }
+                        }, 100);
                     }
                 }
             }, REFRESH_INTERVAL);
