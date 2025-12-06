@@ -40,12 +40,24 @@ A Python-based web application for monitoring and controlling services (JAR, EXE
    
    **On Windows:**
    ```bash
+   # Option 1: Using pip directly (if pip is in PATH)
    pip install -r requirements.txt
+   
+   # Option 2: Using python -m pip (recommended if pip command not found)
+   python -m pip install -r requirements.txt
+   
+   # Option 3: Using full Python path (if Python is not in PATH)
+   C:\Users\commsadmin\AppData\Local\Programs\Python\Python314\python -m pip install -r requirements.txt
    ```
    
    **On macOS/Linux:**
    ```bash
    pip3 install -r requirements.txt
+   ```
+   
+   **Note**: If you get permission errors, you may need to run with administrator privileges or use `--user` flag:
+   ```bash
+   pip install --user -r requirements.txt
    ```
 
 ## Usage

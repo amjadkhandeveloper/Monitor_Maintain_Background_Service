@@ -136,6 +136,19 @@
             list-style: none;
         }
 
+        .direct-files-section {
+            margin-bottom: 15px;
+        }
+        
+        .section-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
         .subfolders-list {
             margin-top: 10px;
         }
@@ -869,14 +882,14 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    // New structure: data.subfolders contains subfolders with executables
-                    if (data.subfolders) {
-                        displaySubfolders(data.subfolders);
-                    } else if (data.jar_files) {
-                        // Backward compatibility: old structure with direct files
-                        displayJarFiles(data.jar_files);
-                    } else {
+                    // New structure: data.direct_files (files directly in folder) and data.subfolders (files in subfolders)
+                    const directFiles = data.direct_files || [];
+                    const subfolders = data.subfolders || [];
+                    
+                    if (directFiles.length === 0 && subfolders.length === 0) {
                         container.innerHTML = '<div class="no-jars">No executable files found</div>';
+                    } else {
+                        displayExecutables(directFiles, subfolders);
                     }
                 } else {
                     container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
@@ -886,23 +899,18 @@
             }
         }
 
-        function displaySubfolders(subfolders) {
+        function displayExecutables(directFiles, subfolders) {
             const container = document.getElementById('jarListContainer');
+            let html = '';
             
-            if (subfolders.length === 0) {
-                container.innerHTML = '<div class="no-jars">No subfolders with matching executables found</div>';
-                return;
-            }
-            
-            let html = '<div class="subfolders-list">';
-            subfolders.forEach(subfolder => {
-                html += `<div class="subfolder-item">`;
-                html += `<div class="subfolder-name"><strong>${escapeHtml(subfolder.folder_name)}</strong></div>`;
-                html += `<div class="subfolder-executables">`;
-                subfolder.executables.forEach(exec => {
+            // Display direct files first (if any)
+            if (directFiles.length > 0) {
+                html += '<div class="direct-files-section">';
+                html += '<div class="section-title">📁 Direct Files</div>';
+                directFiles.forEach(exec => {
                     const typeClass = `type-${(exec.type || exec.extension || 'jar').toLowerCase().replace('.', '')}`;
                     const typeLabel = (exec.type || exec.extension || 'JAR').toUpperCase().replace('.', '');
-                    html += `<div class="executable-item jar-item" onclick="startService('${escapeHtml(exec.name)}', '${escapeHtml(exec.subfolder_path)}')">`;
+                    html += `<div class="executable-item jar-item" onclick="startService('${escapeHtml(exec.name)}', null)">`;
                     html += `<div class="jar-item-name">`;
                     html += `${escapeHtml(exec.name)}`;
                     html += `<span class="jar-item-type ${typeClass}">${typeLabel}</span>`;
@@ -910,10 +918,42 @@
                     html += `<div class="jar-item-size">${exec.size_mb} MB</div>`;
                     html += `</div>`;
                 });
-                html += `</div></div>`;
-            });
-            html += '</div>';
-            container.innerHTML = html;
+                html += '</div>';
+            }
+            
+            // Display subfolders (if any)
+            if (subfolders.length > 0) {
+                html += '<div class="subfolders-list">';
+                subfolders.forEach(subfolder => {
+                    html += `<div class="subfolder-item">`;
+                    html += `<div class="subfolder-name"><strong>${escapeHtml(subfolder.folder_name)}</strong></div>`;
+                    html += `<div class="subfolder-executables">`;
+                    subfolder.executables.forEach(exec => {
+                        const typeClass = `type-${(exec.type || exec.extension || 'jar').toLowerCase().replace('.', '')}`;
+                        const typeLabel = (exec.type || exec.extension || 'JAR').toUpperCase().replace('.', '');
+                        html += `<div class="executable-item jar-item" onclick="startService('${escapeHtml(exec.name)}', '${escapeHtml(exec.subfolder_path || '')}')">`;
+                        html += `<div class="jar-item-name">`;
+                        html += `${escapeHtml(exec.name)}`;
+                        html += `<span class="jar-item-type ${typeClass}">${typeLabel}</span>`;
+                        html += `</div>`;
+                        html += `<div class="jar-item-size">${exec.size_mb} MB</div>`;
+                        html += `</div>`;
+                    });
+                    html += `</div></div>`;
+                });
+                html += '</div>';
+            }
+            
+            if (html === '') {
+                container.innerHTML = '<div class="no-jars">No executable files found</div>';
+            } else {
+                container.innerHTML = html;
+            }
+        }
+        
+        // Keep backward compatibility
+        function displaySubfolders(subfolders) {
+            displayExecutables([], subfolders);
         }
 
         function displayJarFiles(jarFiles) {
