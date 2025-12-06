@@ -179,35 +179,67 @@ def get_services():
             executable_names_to_info[exe_info['executable_name'].lower()] = exe_info
         
         # Filter services to only include those matching executables in the folder
+        # Match by executable filename (not path) so services run from different locations are still detected
         services = []
         for service in all_services:
             service_name = service.get('service_name') or service.get('jar_name', 'Unknown')
             service_path = service.get('service_path') or service.get('jar_path', '')
             
-            # Check if this service matches any executable in our folder
+            # Extract just the filename from service_path (if it's a full path)
+            service_filename = service_name
+            if service_path:
+                # Try to extract filename from path
+                if os.path.sep in service_path or '\\' in service_path:
+                    service_filename_from_path = os.path.basename(service_path)
+                    if service_filename_from_path:
+                        service_filename = service_filename_from_path
+            
+            # Normalize for comparison
+            service_filename_lower = service_filename.lower()
+            service_filename_no_ext = os.path.splitext(service_filename_lower)[0]
             service_name_lower = service_name.lower()
             service_name_no_ext = os.path.splitext(service_name_lower)[0]
             service_path_normalized = os.path.normpath(service_path).lower() if service_path else ''
             
-            # Match by:
-            # 1. Service name (with or without extension)
-            # 2. Service path
-            # 3. Service name without extension
+            # Match by executable filename (regardless of execution path):
+            # 1. Service filename (from path or name) matches executable name
+            # 2. Service filename without extension matches executable name without extension
+            # 3. Service name matches executable name
+            # 4. Service path matches executable path (exact match)
             matches = False
             
-            if service_name_lower in executable_names or service_name_no_ext in executable_names:
-                matches = True
-            elif service_path_normalized in executable_paths:
-                matches = True
-            elif service_path_normalized:
-                # Check if service path contains any of our executable paths
-                for exe_path in executable_paths:
-                    if exe_path in service_path_normalized or service_path_normalized in exe_path:
-                        matches = True
-                        break
+            # Check if any executable filename matches this service's filename
+            for exe_name, exe_info in folder_executables_map.items():
+                exe_filename = exe_info['executable_name']
+                exe_filename_lower = exe_filename.lower()
+                exe_filename_no_ext = os.path.splitext(exe_filename_lower)[0]
+                exe_name_lower = exe_name.lower()
+                
+                # Match by filename (most important - works regardless of execution path)
+                if (service_filename_lower == exe_filename_lower or
+                    service_filename_no_ext == exe_filename_no_ext or
+                    service_filename_no_ext == exe_name_lower or
+                    service_name_lower == exe_filename_lower or
+                    service_name_no_ext == exe_filename_no_ext or
+                    service_name_no_ext == exe_name_lower):
+                    matches = True
+                    logger.debug(f"Matched service '{service_name}' (filename: '{service_filename}') to executable '{exe_filename}' in folder")
+                    break
+            
+            # Also check path match (for services executed from the configured folder)
+            if not matches:
+                if service_path_normalized in executable_paths:
+                    matches = True
+                elif service_path_normalized:
+                    for exe_path in executable_paths:
+                        if exe_path in service_path_normalized or service_path_normalized in exe_path:
+                            matches = True
+                            break
             
             if matches:
                 services.append(service)
+            else:
+                logger.debug(f"Service '{service_name}' (filename: '{service_filename}', path: '{service_path}') did not match any executable in folder")
         
         # Get MSMQ queue information (Windows only)
         queues_info = {}
@@ -1071,25 +1103,55 @@ def auto_restart_monitor():
                 executable_paths.add(os.path.normpath(exe_info['executable_path']).lower())
             
             # Filter services to only include those matching executables in the folder
+            # Match by executable filename (not path) so services run from different locations are still detected
             running_services = []
             for service in all_running_services:
                 service_name = service.get('service_name') or service.get('jar_name', 'Unknown')
                 service_path = service.get('service_path') or service.get('jar_path', '')
                 
+                # Extract just the filename from service_path (if it's a full path)
+                service_filename = service_name
+                if service_path:
+                    if os.path.sep in service_path or '\\' in service_path:
+                        service_filename_from_path = os.path.basename(service_path)
+                        if service_filename_from_path:
+                            service_filename = service_filename_from_path
+                
+                # Normalize for comparison
+                service_filename_lower = service_filename.lower()
+                service_filename_no_ext = os.path.splitext(service_filename_lower)[0]
                 service_name_lower = service_name.lower()
                 service_name_no_ext = os.path.splitext(service_name_lower)[0]
                 service_path_normalized = os.path.normpath(service_path).lower() if service_path else ''
                 
                 matches = False
-                if service_name_lower in executable_names or service_name_no_ext in executable_names:
-                    matches = True
-                elif service_path_normalized in executable_paths:
-                    matches = True
-                elif service_path_normalized:
-                    for exe_path in executable_paths:
-                        if exe_path in service_path_normalized or service_path_normalized in exe_path:
-                            matches = True
-                            break
+                
+                # Check if any executable filename matches this service's filename
+                for exe_name, exe_info in folder_executables_map.items():
+                    exe_filename = exe_info['executable_name']
+                    exe_filename_lower = exe_filename.lower()
+                    exe_filename_no_ext = os.path.splitext(exe_filename_lower)[0]
+                    exe_name_lower = exe_name.lower()
+                    
+                    # Match by filename (most important - works regardless of execution path)
+                    if (service_filename_lower == exe_filename_lower or
+                        service_filename_no_ext == exe_filename_no_ext or
+                        service_filename_no_ext == exe_name_lower or
+                        service_name_lower == exe_filename_lower or
+                        service_name_no_ext == exe_filename_no_ext or
+                        service_name_no_ext == exe_name_lower):
+                        matches = True
+                        break
+                
+                # Also check path match (for services executed from the configured folder)
+                if not matches:
+                    if service_path_normalized in executable_paths:
+                        matches = True
+                    elif service_path_normalized:
+                        for exe_path in executable_paths:
+                            if exe_path in service_path_normalized or service_path_normalized in exe_path:
+                                matches = True
+                                break
                 
                 if matches:
                     running_services.append(service)
