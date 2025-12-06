@@ -1007,27 +1007,43 @@ def auto_restart_monitor():
             if msmq_available and platform.system() == 'Windows':
                 try:
                     all_queues = msmq_monitor.get_all_queues()
+                    logger.debug(f"Found {len(all_queues)} MSMQ queues")
+                    
                     for queue in all_queues:
                         queue_name = queue.get('Name', '')
                         message_count = queue.get('MessageCount', 0)
+                        queue_type = queue.get('QueueType', 'Unknown')
                         
-                        # Extract simple queue name (match to executable name)
-                        queue_simple_name = queue_name
-                        if '\\' in queue_simple_name:
-                            queue_simple_name = queue_simple_name.split('\\')[-1]
-                        queue_simple_name = queue_simple_name.replace('private$\\', '').replace('public$\\', '')
-                        queue_simple_name = os.path.splitext(queue_simple_name)[0]
+                        # Extract simple queue name using improved method
+                        queue_simple_name = msmq_monitor.extract_queue_simple_name(queue_name)
+                        queue_simple_name_no_ext = os.path.splitext(queue_simple_name)[0].lower()
+                        
+                        logger.debug(f"Processing queue: '{queue_name}' -> simple name: '{queue_simple_name}' -> no ext: '{queue_simple_name_no_ext}', messages: {message_count}")
                         
                         # Match queue name to executable name
+                        matched = False
                         for exe_name, exe_info in folder_executables_map.items():
+                            exe_name_lower = exe_name.lower()
                             exe_name_no_ext = os.path.splitext(exe_info['executable_name'])[0].lower()
-                            if exe_name.lower() == queue_simple_name.lower() or exe_name_no_ext == queue_simple_name.lower():
-                                exe_file_name = exe_info['executable_name']
+                            exe_file_name = exe_info['executable_name']
+                            
+                            # Try multiple matching strategies
+                            if (exe_name_lower == queue_simple_name_no_ext or 
+                                exe_name_no_ext == queue_simple_name_no_ext or
+                                exe_file_name.lower() == queue_simple_name.lower() or
+                                os.path.splitext(exe_file_name)[0].lower() == queue_simple_name_no_ext):
+                                
                                 queue_message_counts[exe_file_name] = message_count
                                 queue_folder_map[exe_file_name] = exe_info.get('subfolder_path')
+                                logger.info(f"Matched MSMQ queue '{queue_name}' ({queue_type}, {message_count} messages) to executable '{exe_file_name}'")
+                                matched = True
                                 break
+                        
+                        if not matched:
+                            logger.debug(f"No match found for queue '{queue_name}' (simple name: '{queue_simple_name_no_ext}')")
+                            
                 except Exception as e:
-                    logger.error(f"Error getting MSMQ queues in monitor: {str(e)}")
+                    logger.error(f"Error getting MSMQ queues in monitor: {str(e)}", exc_info=True)
             
             # Get all running services and filter to only those in our folder
             all_running_services = monitor.get_all_services()
@@ -1084,11 +1100,13 @@ def auto_restart_monitor():
                     # Check if this service has a queue with exceeded threshold
                     if service_name in queue_message_counts:
                         queue_message_count = queue_message_counts[service_name]
-                        # Use default threshold of 10,000 if not configured, or get from config if exists
+                        # Use default threshold of 1,000 if not configured, or get from config if exists
                         queue_threshold = existing_config.get('queue_threshold', DEFAULT_QUEUE_THRESHOLD)
                         
+                        logger.debug(f"Service {pid} ({service_name}): Queue message count = {queue_message_count}, threshold = {queue_threshold}")
+                        
                         if queue_message_count >= queue_threshold:
-                            logger.warning(f"Service {pid} ({service_name}) queue exceeds threshold: {queue_message_count} >= {queue_threshold} messages. Initiating auto-restart...")
+                            logger.warning(f"Service {pid} ({service_name}) MSMQ queue exceeds threshold: {queue_message_count} >= {queue_threshold} messages. Initiating auto-restart...")
                             
                             # Mark as restarting
                             with auto_restart_lock:

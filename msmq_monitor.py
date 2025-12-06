@@ -174,6 +174,45 @@ class MSMQMonitor:
         
         return None
     
+    def extract_queue_simple_name(self, queue_name):
+        """
+        Extract simple queue name from MSMQ queue name format
+        Handles formats like:
+        - computername\private$\queuename
+        - private$\queuename
+        - queuename
+        
+        Returns:
+            Simple queue name (without path prefixes)
+        """
+        if not queue_name:
+            return ''
+        
+        # Remove common prefixes
+        queue_name = queue_name.replace('private$\\', '').replace('public$\\', '')
+        queue_name = queue_name.replace(r'private$/', '').replace(r'public$/', '')
+        
+        # Extract last part after backslash (for private queues: computername\private$\queuename)
+        if '\\' in queue_name:
+            parts = queue_name.split('\\')
+            # Find the actual queue name (usually the last non-empty part)
+            for part in reversed(parts):
+                if part and part.lower() not in ['private$', 'public$']:
+                    return part
+            # Fallback: use last part
+            queue_name = parts[-1]
+        elif '/' in queue_name:
+            parts = queue_name.split('/')
+            for part in reversed(parts):
+                if part and part.lower() not in ['private$', 'public$']:
+                    return part
+            queue_name = parts[-1]
+        
+        # Remove any remaining $ signs
+        queue_name = queue_name.replace('$', '')
+        
+        return queue_name.strip()
+    
     def match_queue_to_executable(self, queue_name, executable_files):
         """
         Match a queue name to an executable file
@@ -186,14 +225,14 @@ class MSMQMonitor:
         Returns:
             Matched executable file path or None
         """
-        # Extract simple queue name (without path prefixes)
-        if '\\' in queue_name:
-            queue_simple_name = queue_name.split('\\')[-1]
-        else:
-            queue_simple_name = queue_name
+        # Extract simple queue name
+        queue_simple_name = self.extract_queue_simple_name(queue_name)
         
-        # Remove common queue suffixes/prefixes
-        queue_simple_name = queue_simple_name.replace('private$\\', '').replace('public$\\', '')
+        if not queue_simple_name:
+            return None
+        
+        # Remove extension if present
+        queue_simple_name = os.path.splitext(queue_simple_name)[0]
         
         for exe_file in executable_files:
             # Get just the filename without path
@@ -207,6 +246,7 @@ class MSMQMonitor:
             
             # Compare (case-insensitive)
             if exe_name_without_ext.lower() == queue_simple_name.lower():
+                logger.debug(f"Matched queue '{queue_name}' (simple: '{queue_simple_name}') to executable '{exe_file}'")
                 return exe_file
         
         return None
