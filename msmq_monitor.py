@@ -178,8 +178,8 @@ class MSMQMonitor:
         """
         Extract simple queue name from MSMQ queue name format
         Handles formats like:
-        - computername\private$\queuename
-        - private$\queuename
+        - computername\\private$\\queuename
+        - private$\\queuename
         - queuename
         
         Returns:
