@@ -138,7 +138,8 @@ def get_all_executables_from_folder(folder_path):
                                 'executable_path': target_path,  # Use actual target path
                                 'executable_name': target_filename,  # Use target filename
                                 'shortcut_path': file_path,  # Store shortcut path
-                                'subfolder_path': os.path.dirname(target_path),  # Target's directory
+                                'shortcut_name': file_name_without_ext,  # Store shortcut name (without .lnk)
+                                'subfolder_path': None,  # Shortcut is in main folder, treat as direct file
                                 'folder_name': None
                             }
                             direct_files_found += 1
