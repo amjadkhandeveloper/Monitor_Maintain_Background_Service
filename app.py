@@ -1266,6 +1266,7 @@ def auto_restart_monitor():
             for service in all_running_services:
                 service_name = service.get('service_name') or service.get('jar_name', 'Unknown')
                 service_path = service.get('service_path') or service.get('jar_path', '')
+                process_name = service.get('process_name', '')  # Actual process name (e.g., "CorrelatorMax.exe")
                 
                 # Extract just the filename from service_path (if it's a full path)
                 service_filename = service_name
@@ -1275,11 +1276,17 @@ def auto_restart_monitor():
                         if service_filename_from_path:
                             service_filename = service_filename_from_path
                 
+                # Use process_name if available (this is what Task Manager shows)
+                if process_name:
+                    service_filename = process_name
+                
                 # Normalize for comparison
                 service_filename_lower = service_filename.lower()
                 service_filename_no_ext = os.path.splitext(service_filename_lower)[0]
                 service_name_lower = service_name.lower()
                 service_name_no_ext = os.path.splitext(service_name_lower)[0]
+                process_name_lower = process_name.lower() if process_name else ''
+                process_name_no_ext = os.path.splitext(process_name_lower)[0] if process_name else ''
                 service_path_normalized = os.path.normpath(service_path).lower() if service_path else ''
                 
                 matches = False
@@ -1291,13 +1298,29 @@ def auto_restart_monitor():
                     exe_filename_no_ext = os.path.splitext(exe_filename_lower)[0]
                     exe_name_lower = exe_name.lower()
                     
+                    # Get shortcut name if available
+                    shortcut_name = exe_info.get('shortcut_name') or exe_name
+                    shortcut_name_lower = shortcut_name.lower()
+                    shortcut_name_no_ext = os.path.splitext(shortcut_name_lower)[0]
+                    
                     # Match by filename (most important - works regardless of execution path)
+                    # Also match by process name (what Task Manager shows)
                     if (service_filename_lower == exe_filename_lower or
                         service_filename_no_ext == exe_filename_no_ext or
                         service_filename_no_ext == exe_name_lower or
+                        service_filename_no_ext == shortcut_name_no_ext or
                         service_name_lower == exe_filename_lower or
                         service_name_no_ext == exe_filename_no_ext or
-                        service_name_no_ext == exe_name_lower):
+                        service_name_no_ext == exe_name_lower or
+                        service_name_no_ext == shortcut_name_no_ext or
+                        service_filename_lower == shortcut_name_lower or
+                        service_name_lower == shortcut_name_lower or
+                        # Match by process name (what Task Manager shows)
+                        (process_name_lower and (process_name_lower == exe_filename_lower or
+                                                 process_name_no_ext == exe_filename_no_ext or
+                                                 process_name_no_ext == exe_name_lower or
+                                                 process_name_no_ext == shortcut_name_no_ext or
+                                                 process_name_lower == shortcut_name_lower))):
                         matches = True
                         break
                 
