@@ -211,26 +211,35 @@ def get_services():
         
         # Get MSMQ queue information (Windows only)
         queues_info = {}
+        all_queues_list = []  # Store all queues for display even if not matched
         if msmq_available and platform.system() == 'Windows':
             try:
                 all_queues = msmq_monitor.get_all_queues()
+                all_queues_list = all_queues  # Store for potential display
+                
                 for queue in all_queues:
                     queue_name = queue.get('Name', '')
                     message_count = queue.get('MessageCount', 0)
+                    queue_type = queue.get('QueueType', 'Unknown')
                     
-                    # Extract simple queue name (match to executable name)
-                    queue_simple_name = queue_name
-                    if '\\' in queue_simple_name:
-                        queue_simple_name = queue_simple_name.split('\\')[-1]
-                    queue_simple_name = queue_simple_name.replace('private$\\', '').replace('public$\\', '')
-                    queue_simple_name = os.path.splitext(queue_simple_name)[0]  # Remove extension if any
+                    # Extract simple queue name using improved method
+                    queue_simple_name = msmq_monitor.extract_queue_simple_name(queue_name)
+                    queue_simple_name_no_ext = os.path.splitext(queue_simple_name)[0].lower()
                     
                     # Match queue name to executable name (case-insensitive)
                     matched_executable = None
                     for exe_name, exe_info in folder_executables_map.items():
+                        exe_name_lower = exe_name.lower()
                         exe_name_no_ext = os.path.splitext(exe_info['executable_name'])[0].lower()
-                        if exe_name.lower() == queue_simple_name.lower() or exe_name_no_ext == queue_simple_name.lower():
+                        exe_file_name = exe_info['executable_name']
+                        
+                        # Try multiple matching strategies
+                        if (exe_name_lower == queue_simple_name_no_ext or 
+                            exe_name_no_ext == queue_simple_name_no_ext or
+                            exe_file_name.lower() == queue_simple_name.lower() or
+                            os.path.splitext(exe_file_name)[0].lower() == queue_simple_name_no_ext):
                             matched_executable = exe_info
+                            logger.debug(f"Matched queue '{queue_name}' to executable '{exe_file_name}'")
                             break
                     
                     if matched_executable:
@@ -238,12 +247,16 @@ def get_services():
                         queues_info[exe_name] = {
                             'queue_name': queue_name,
                             'message_count': message_count,
+                            'queue_type': queue_type,
                             'executable_path': matched_executable['executable_path'],
                             'subfolder_path': matched_executable.get('subfolder_path'),
-                            'folder_name': matched_executable.get('folder_name')
+                            'folder_name': matched_executable.get('folder_name'),
+                            'queue_simple_name': queue_simple_name
                         }
+                    else:
+                        logger.debug(f"No match found for queue '{queue_name}' (simple name: '{queue_simple_name_no_ext}')")
             except Exception as e:
-                logger.error(f"Error getting MSMQ queues: {str(e)}")
+                logger.error(f"Error getting MSMQ queues: {str(e)}", exc_info=True)
         
         # Add auto-restart configuration and MSMQ info to each service
         # First check in-memory (by PID), then check persistent storage (by service name)
@@ -313,7 +326,8 @@ def get_services():
         return jsonify({
             'success': True,
             'services': services,
-            'msmq_available': msmq_available
+            'msmq_available': msmq_available,
+            'all_queues': all_queues_list if msmq_available else []  # Include all queues for debugging/display
         })
     except Exception as e:
         logger.error(f"Error getting services: {str(e)}")

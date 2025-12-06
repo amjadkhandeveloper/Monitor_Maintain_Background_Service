@@ -374,6 +374,14 @@
             background: linear-gradient(90deg, #ff6b6b 0%, #ee5a6f 100%);
         }
 
+        .bar-medium {
+            background: linear-gradient(90deg, #ffc107 0%, #ff9800 100%);
+        }
+
+        .bar-low {
+            background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
+        }
+
         .service-actions {
             display: flex;
             gap: 6px;
@@ -1035,6 +1043,8 @@
             return startService(jarName);
         }
 
+        let msmqAvailable = false; // Global flag for MSMQ availability
+        
         async function loadServices() {
             const container = document.getElementById('servicesContainer');
             const refreshBtn = document.getElementById('refreshBtn');
@@ -1046,6 +1056,8 @@
                 const data = await response.json();
                 
                 if (data.success) {
+                    // Store MSMQ availability flag
+                    msmqAvailable = data.msmq_available || false;
                     displayServices(data.services);
                 } else {
                     container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
@@ -1167,8 +1179,11 @@
                     ${queueMessageCount !== null ? `
                     <div class="utilization-bar">
                         <div class="bar-label">
-                            <span>MSMQ Queue Messages</span>
-                            <span>${queueMessageCount.toLocaleString()} messages</span>
+                            <span>📬 MSMQ Queue Messages</span>
+                            <span style="font-weight: bold; color: ${queueMessageCount >= queueThreshold ? '#dc3545' : queueMessageCount >= queueThreshold * 0.8 ? '#ffc107' : '#28a745'};">
+                                ${queueMessageCount.toLocaleString()} / ${queueThreshold.toLocaleString()} msgs
+                                ${queueMessageCount >= queueThreshold ? ' ⚠️ EXCEEDED' : ''}
+                            </span>
                         </div>
                         <div class="bar-container">
                             <div class="bar-fill ${queueMessageCount >= queueThreshold ? 'bar-high' : queueMessageCount >= queueThreshold * 0.8 ? 'bar-medium' : 'bar-low'}" 
@@ -1176,10 +1191,13 @@
                                 ${queueMessageCount > 0 ? queueMessageCount.toLocaleString() + ' msgs' : ''}
                             </div>
                         </div>
-                        ${queueName ? `<div class="queue-info">Queue: ${escapeHtml(queueName)}</div>` : ''}
+                        ${queueName ? `<div class="queue-info" style="font-size: 0.7em; color: #666; margin-top: 3px;">
+                            <strong>Queue:</strong> ${escapeHtml(queueName)}
+                            ${service.msmq_queue && service.msmq_queue.queue_type ? ` | <strong>Type:</strong> ${service.msmq_queue.queue_type}` : ''}
+                        </div>` : ''}
                         ${service.status === 'running' && !isRestarting ? `
                         <div class="queue-threshold-config" style="margin-top: 4px; display: flex; gap: 4px; align-items: center;">
-                            <label style="font-size: 0.7em;">Queue Threshold:</label>
+                            <label style="font-size: 0.7em; font-weight: bold;">Threshold:</label>
                             <input type="number" 
                                    id="queueThresholdOnly_${service.pid}" 
                                    value="${queueThreshold}" 
@@ -1194,8 +1212,22 @@
                                     style="padding: 3px 8px; background: #667eea; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 0.7em; white-space: nowrap;">
                                 Set
                             </button>
+                            ${queueMessageCount >= queueThreshold ? `
+                            <button onclick="restartService(${service.pid}, '${escapeHtml(service.jar_name)}')" 
+                                    style="padding: 3px 8px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 0.7em; white-space: nowrap; font-weight: bold;"
+                                    title="Restart service due to queue threshold exceeded">
+                                🔄 Restart Now
+                            </button>
+                            ` : ''}
                         </div>
                         ` : ''}
+                    </div>
+                    ` : service.status === 'running' && msmqAvailable ? `
+                    <div class="utilization-bar" style="opacity: 0.6;">
+                        <div class="bar-label">
+                            <span>📬 MSMQ Queue</span>
+                            <span style="font-size: 0.7em; color: #999;">No queue matched</span>
+                        </div>
                     </div>
                     ` : ''}
 
