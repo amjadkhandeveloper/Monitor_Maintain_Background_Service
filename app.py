@@ -87,12 +87,65 @@ def get_all_executables_from_folder(folder_path):
         }
         extensions = supported_exts.get(system, ['.jar', '.exe', '.bat', '.sh'])
         
+        # Helper function to resolve Windows shortcut target
+        def resolve_shortcut(shortcut_path):
+            """Resolve Windows shortcut (.lnk) to its target path"""
+            if system != 'Windows':
+                return None
+            try:
+                import win32com.client
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shortcut = shell.CreateShortCut(shortcut_path)
+                target = shortcut.Targetpath
+                return target if target and os.path.exists(target) else None
+            except ImportError:
+                # Fallback: try using PowerShell
+                try:
+                    import subprocess
+                    ps_command = f'(New-Object -ComObject WScript.Shell).CreateShortcut("{shortcut_path}").TargetPath'
+                    result = subprocess.run(
+                        ['powershell', '-Command', ps_command],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if result.returncode == 0:
+                        target = result.stdout.strip().strip('"')
+                        return target if target and os.path.exists(target) else None
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.debug(f"Error resolving shortcut {shortcut_path}: {str(e)}")
+            return None
+        
         # First, scan for files directly in the folder
         direct_files_found = 0
         for filename in os.listdir(folder_path):
             file_path = os.path.join(folder_path, filename)
             if os.path.isfile(file_path):
                 file_ext = os.path.splitext(filename)[1].lower()
+                
+                # Handle Windows shortcuts (.lnk files)
+                if file_ext == '.lnk' and system == 'Windows':
+                    target_path = resolve_shortcut(file_path)
+                    if target_path:
+                        target_ext = os.path.splitext(target_path)[1].lower()
+                        if target_ext in extensions:
+                            # Use shortcut name (without .lnk) as the key
+                            file_name_without_ext = os.path.splitext(filename)[0]
+                            target_filename = os.path.basename(target_path)
+                            executables_map[file_name_without_ext] = {
+                                'executable_path': target_path,  # Use actual target path
+                                'executable_name': target_filename,  # Use target filename
+                                'shortcut_path': file_path,  # Store shortcut path
+                                'subfolder_path': os.path.dirname(target_path),  # Target's directory
+                                'folder_name': None
+                            }
+                            direct_files_found += 1
+                            logger.debug(f"Found shortcut: {filename} -> {target_path}")
+                    continue
+                
+                # Handle regular executable files
                 if file_ext in extensions:
                     file_name_without_ext = os.path.splitext(filename)[0]
                     executables_map[file_name_without_ext] = {
