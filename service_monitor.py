@@ -281,6 +281,9 @@ class ServiceMonitor:
             working_directory: Optional working directory (defaults to executable's directory)
         """
         try:
+            # Normalize the path to ensure proper formatting
+            service_path = os.path.normpath(service_path)
+            
             if not os.path.exists(service_path):
                 return {
                     'success': False,

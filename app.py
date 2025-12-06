@@ -97,12 +97,18 @@ def get_all_executables_from_folder(folder_path):
                 shell = win32com.client.Dispatch("WScript.Shell")
                 shortcut = shell.CreateShortCut(shortcut_path)
                 target = shortcut.Targetpath
-                return target if target and os.path.exists(target) else None
+                if target:
+                    # Normalize the path to ensure proper backslashes
+                    target = os.path.normpath(target)
+                    return target if os.path.exists(target) else None
+                return None
             except ImportError:
                 # Fallback: try using PowerShell
                 try:
                     import subprocess
-                    ps_command = f'(New-Object -ComObject WScript.Shell).CreateShortcut("{shortcut_path}").TargetPath'
+                    # Escape the shortcut path for PowerShell
+                    escaped_path = shortcut_path.replace('\\', '\\\\').replace('"', '`"')
+                    ps_command = f'(New-Object -ComObject WScript.Shell).CreateShortcut("{escaped_path}").TargetPath'
                     result = subprocess.run(
                         ['powershell', '-Command', ps_command],
                         capture_output=True,
@@ -110,9 +116,13 @@ def get_all_executables_from_folder(folder_path):
                         timeout=5
                     )
                     if result.returncode == 0:
-                        target = result.stdout.strip().strip('"')
-                        return target if target and os.path.exists(target) else None
-                except Exception:
+                        target = result.stdout.strip().strip('"').strip("'")
+                        # Normalize the path to ensure proper backslashes
+                        if target:
+                            target = os.path.normpath(target)
+                            return target if os.path.exists(target) else None
+                except Exception as e:
+                    logger.debug(f"PowerShell shortcut resolution failed: {str(e)}")
                     pass
             except Exception as e:
                 logger.debug(f"Error resolving shortcut {shortcut_path}: {str(e)}")
