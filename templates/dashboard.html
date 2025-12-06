@@ -970,9 +970,10 @@
                     subfolder.executables.forEach(exec => {
                         const typeClass = `type-${(exec.type || exec.extension || 'jar').toLowerCase().replace('.', '')}`;
                         const typeLabel = (exec.type || exec.extension || 'JAR').toUpperCase().replace('.', '');
+                        const portDisplay = exec.port_identifier ? ` <span style="color: #007bff;">(Port: ${exec.port_identifier})</span>` : '';
                         html += `<div class="executable-item jar-item" onclick="startService('${escapeHtml(exec.name)}', '${escapeHtml(exec.subfolder_path || '')}')">`;
                         html += `<div class="jar-item-name">`;
-                        html += `${escapeHtml(exec.name)}`;
+                        html += `${escapeHtml(exec.name)}${portDisplay}`;
                         html += `<span class="jar-item-type ${typeClass}">${typeLabel}</span>`;
                         html += `</div>`;
                         html += `<div class="jar-item-size">${exec.size_mb} MB</div>`;
@@ -1173,10 +1174,13 @@
                 }
             }
 
+            // Display port identifier if available
+            const portDisplay = service.port_identifier ? ` <span style="color: #007bff; font-weight: bold;">(Port: ${service.port_identifier})</span>` : '';
+            
             return `
                 <div class="service-card">
                     <div class="service-header">
-                        <div class="service-name">${escapeHtml(service.jar_name)}</div>
+                        <div class="service-name">${escapeHtml(service.jar_name)}${portDisplay}</div>
                         <span class="status-badge ${statusClass}">${service.status.toUpperCase()}</span>
                     </div>
                     
@@ -1185,6 +1189,12 @@
                             <span class="info-label">PID:</span>
                             <span class="info-value">${service.pid}</span>
                         </div>
+                        ${service.port_identifier ? `
+                        <div class="info-row">
+                            <span class="info-label">Port:</span>
+                            <span class="info-value" style="color: #007bff; font-weight: bold;">${service.port_identifier}</span>
+                        </div>
+                        ` : ''}
                         <div class="info-row">
                             <span class="info-label">Uptime:</span>
                             <span class="info-value">${service.uptime_formatted}</span>
