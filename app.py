@@ -824,7 +824,9 @@ def list_jar_files():
                         'size_mb': round(file_size / (1024 * 1024), 2),
                         'type': file_type,
                         'extension': file_ext,
-                        'original_name': exe_info['executable_name']  # Keep original for matching
+                        'original_name': exe_info['executable_name'],  # Keep original for matching
+                        'port_identifier': exe_info.get('port_identifier'),  # Port number if found in filename
+                        'base_name': exe_info.get('base_name')  # Base name without port
                     })
             
             # Then, organize subfolder files
@@ -849,7 +851,9 @@ def list_jar_files():
                         'subfolder_path': subfolder_path,
                         'size_mb': round(file_size / (1024 * 1024), 2),
                         'type': file_type,
-                        'extension': file_ext
+                        'extension': file_ext,
+                        'port_identifier': exe_info.get('port_identifier'),  # Port number if found in filename
+                        'base_name': exe_info.get('base_name')  # Base name without port
                     })
             
             # Convert subfolder map to list
