@@ -658,20 +658,39 @@ def list_jar_files():
         subfolders_with_executables = []
         
         try:
-            # First, get direct files in the folder
+            # First, get direct files in the folder (including shortcuts)
             for exe_name, exe_info in executables_map.items():
-                if exe_info['subfolder_path'] is None:
-                    # Direct file in folder
-                    file_size = os.path.getsize(exe_info['executable_path'])
+                if exe_info.get('subfolder_path') is None:
+                    # Direct file in folder (or shortcut resolved to a file)
+                    executable_path = exe_info['executable_path']
+                    
+                    # Check if file exists (for shortcuts, check the target)
+                    if not os.path.exists(executable_path):
+                        logger.debug(f"Skipping non-existent file: {executable_path}")
+                        continue
+                    
+                    file_size = os.path.getsize(executable_path)
                     file_ext = os.path.splitext(exe_info['executable_name'])[1].lower()
                     file_type = file_ext.upper().replace('.', '')
+                    
+                    # For shortcuts, use the shortcut name (without .lnk) for display
+                    display_name = exe_info['executable_name']
+                    if 'shortcut_path' in exe_info:
+                        # Use shortcut name (without .lnk) as display name
+                        shortcut_path = exe_info.get('shortcut_path', '')
+                        if shortcut_path:
+                            shortcut_filename = os.path.basename(shortcut_path)
+                            display_name = os.path.splitext(shortcut_filename)[0] + file_ext
+                    
                     direct_files.append({
-                        'name': exe_info['executable_name'],
-                        'path': exe_info['executable_path'],
+                        'name': display_name,  # Display name (shortcut name or actual filename)
+                        'path': executable_path,  # Actual executable path (target for shortcuts)
+                        'shortcut_path': exe_info.get('shortcut_path'),  # Original shortcut path if exists
                         'subfolder_path': None,
                         'size_mb': round(file_size / (1024 * 1024), 2),
                         'type': file_type,
-                        'extension': file_ext
+                        'extension': file_ext,
+                        'original_name': exe_info['executable_name']  # Keep original for matching
                     })
             
             # Then, organize subfolder files

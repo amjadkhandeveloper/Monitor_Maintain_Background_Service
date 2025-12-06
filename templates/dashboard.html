@@ -945,7 +945,11 @@
                 directFiles.forEach(exec => {
                     const typeClass = `type-${(exec.type || exec.extension || 'jar').toLowerCase().replace('.', '')}`;
                     const typeLabel = (exec.type || exec.extension || 'JAR').toUpperCase().replace('.', '');
-                    html += `<div class="executable-item jar-item" onclick="startService('${escapeHtml(exec.name)}', null)">`;
+                    // Use original_name for matching if available, otherwise use name
+                    const serviceName = exec.original_name || exec.name;
+                    // For shortcuts, pass the actual executable path, not the shortcut path
+                    const execPath = exec.path || exec.shortcut_path;
+                    html += `<div class="executable-item jar-item" onclick="startService('${escapeHtml(serviceName)}', null, '${escapeHtml(execPath || '')}')">`;
                     html += `<div class="jar-item-name">`;
                     html += `${escapeHtml(exec.name)}`;
                     html += `<span class="jar-item-type ${typeClass}">${typeLabel}</span>`;
@@ -1018,17 +1022,21 @@
             `;
         }
 
-        async function startService(fileName, subfolderPath) {
+        async function startService(fileName, subfolderPath, executablePath) {
             if (!currentFolderPath) {
                 showMessage('Please set folder path first', 'error');
                 return;
             }
 
-            // If subfolderPath is provided, use it; otherwise use old logic for backward compatibility
+            // If executablePath is provided (for shortcuts), use it directly
             let servicePath;
             let workingDirectory;
             
-            if (subfolderPath) {
+            if (executablePath) {
+                // Use the provided executable path (from shortcut target or direct file)
+                servicePath = executablePath;
+                workingDirectory = subfolderPath || null;
+            } else if (subfolderPath) {
                 // New structure: subfolderPath contains the subfolder, fileName is the executable
                 const separator = subfolderPath.includes('\\') ? '\\' : '/';
                 servicePath = subfolderPath + (subfolderPath.endsWith('/') || subfolderPath.endsWith('\\') ? '' : separator) + fileName;
