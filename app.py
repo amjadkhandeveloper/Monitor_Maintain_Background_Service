@@ -159,14 +159,38 @@ def get_all_executables_from_folder(folder_path):
                 # Handle regular executable files
                 if file_ext in extensions:
                     file_name_without_ext = os.path.splitext(filename)[0]
-                    executables_map[file_name_without_ext] = {
+                    
+                    # Extract port/identifier from filename
+                    import re
+                    port_identifier = None
+                    port_patterns = [
+                        r'_(\d+)',           # _8080
+                        r'-(\d+)',           # -8080
+                        r'Port(\d+)',        # Port8080
+                        r'port(\d+)',        # port8080
+                    ]
+                    for pattern in port_patterns:
+                        match = re.search(pattern, filename, re.IGNORECASE)
+                        if match:
+                            port = match.group(1)
+                            if port.isdigit() and 1 <= int(port) <= 65535:
+                                port_identifier = port
+                                break
+                    
+                    # Use filename with port as key if port exists, otherwise use base name
+                    # This allows multiple executables with same base name but different ports
+                    map_key = filename if port_identifier else file_name_without_ext
+                    
+                    executables_map[map_key] = {
                         'executable_path': file_path,
                         'executable_name': filename,
                         'subfolder_path': None,  # Directly in folder
-                        'folder_name': None
+                        'folder_name': None,
+                        'port_identifier': port_identifier,  # Port number if found in filename
+                        'base_name': file_name_without_ext  # Base name without port
                     }
                     direct_files_found += 1
-                    logger.debug(f"Found direct executable: {filename} in {folder_path}")
+                    logger.debug(f"Found direct executable: {filename} (port: {port_identifier}) in {folder_path}")
         
         logger.info(f"Found {direct_files_found} executable files directly in folder")
         
@@ -261,6 +285,7 @@ def get_services():
             service_name = service.get('service_name') or service.get('jar_name', 'Unknown')
             service_path = service.get('service_path') or service.get('jar_path', '')
             process_name = service.get('process_name', '')  # Actual process name (e.g., "CorrelatorMax.exe")
+            service_port = service.get('port_identifier')  # Port from running service
             
             # Extract just the filename from service_path (if it's a full path)
             service_filename = service_name
@@ -292,7 +317,9 @@ def get_services():
             # 2. Service filename without extension matches executable name without extension
             # 3. Service name matches executable name
             # 4. Service path matches executable path (exact match)
+            # 5. Match by port/identifier if available (for same-name executables)
             matches = False
+            matched_exe_info = None
             
             # Check if any executable filename matches this service's filename
             for exe_name, exe_info in folder_executables_map.items():
@@ -300,6 +327,8 @@ def get_services():
                 exe_filename_lower = exe_filename.lower()
                 exe_filename_no_ext = os.path.splitext(exe_filename_lower)[0]
                 exe_name_lower = exe_name.lower()
+                exe_port = exe_info.get('port_identifier')
+                exe_base_name = exe_info.get('base_name', exe_filename_no_ext)
                 
                 # Get shortcut name if available (for shortcuts, this is the key name)
                 shortcut_name = exe_info.get('shortcut_name') or exe_name
@@ -308,8 +337,8 @@ def get_services():
                 
                 # Match by filename (most important - works regardless of execution path)
                 # Try ALL matching strategies: service_filename, service_name, AND process_name
-                # This ensures we don't miss any matches that were working before
-                match_found = (
+                # Also match by port if both have ports
+                filename_match = (
                     # Match by service_filename (from path or name)
                     service_filename_lower == exe_filename_lower or
                     service_filename_no_ext == exe_filename_no_ext or
@@ -329,37 +358,77 @@ def get_services():
                         process_name_no_ext == exe_name_lower or
                         process_name_no_ext == shortcut_name_no_ext or
                         process_name_lower == shortcut_name_lower
-                    ))
+                    )) or
+                    # Match by base name (without port) if process name matches base name
+                    (process_name_no_ext and exe_base_name and process_name_no_ext == exe_base_name.lower())
                 )
                 
-                if match_found:
+                # If filename matches, check port matching for same-name executables
+                if filename_match:
+                    # If both have ports, they must match
+                    if service_port and exe_port:
+                        if service_port == exe_port:
+                            matches = True
+                            matched_exe_info = exe_info
+                            logger.info(f"✓ Matched service '{service_name}' (port: {service_port}, process: '{process_name}') to executable '{exe_filename}' (port: {exe_port})")
+                            break
+                    # If only one has port, still match (backward compatibility)
+                    elif not service_port and not exe_port:
+                        # No ports, match by filename only
+                        matches = True
+                        matched_exe_info = exe_info
+                        logger.info(f"✓ Matched service '{service_name}' (process: '{process_name}', filename: '{service_filename}') to executable '{exe_filename}'")
+                        break
+                    # If service has port but exe doesn't, or vice versa - still match if base name matches
+                    elif (service_port and not exe_port) or (not service_port and exe_port):
+                        # One has port, one doesn't - match by base name
+                        if process_name_no_ext and exe_base_name and process_name_no_ext == exe_base_name.lower():
+                            matches = True
+                            matched_exe_info = exe_info
+                            logger.info(f"✓ Matched service '{service_name}' (port: {service_port or 'none'}, process: '{process_name}') to executable '{exe_filename}' (port: {exe_port or 'none'}) by base name")
+                            break
+                
+                # Also check exact path match (highest priority)
+                if service_path_normalized == os.path.normpath(exe_info['executable_path']).lower():
                     matches = True
-                    match_type = []
-                    if service_filename_lower == exe_filename_lower or service_filename_no_ext == exe_filename_no_ext:
-                        match_type.append('filename')
-                    if process_name_lower and (process_name_lower == exe_filename_lower or process_name_no_ext == exe_filename_no_ext):
-                        match_type.append('process_name')
-                    logger.info(f"✓ Matched service '{service_name}' (process: '{process_name}', filename: '{service_filename}') to executable '{exe_filename}' (shortcut: '{shortcut_name}') by: {', '.join(match_type) if match_type else 'path/name'}")
+                    matched_exe_info = exe_info
+                    logger.info(f"✓ Matched service '{service_name}' by exact path: '{service_path}'")
                     break
             
             # Also check path match (for services executed from the configured folder)
             if not matches:
                 if service_path_normalized in executable_paths:
                     matches = True
+                    # Find the matching exe_info
+                    for exe_name, exe_info in folder_executables_map.items():
+                        if os.path.normpath(exe_info['executable_path']).lower() == service_path_normalized:
+                            matched_exe_info = exe_info
+                            break
                 elif service_path_normalized:
-                    for exe_path in executable_paths:
+                    for exe_name, exe_info in folder_executables_map.items():
+                        exe_path = os.path.normpath(exe_info['executable_path']).lower()
                         if exe_path in service_path_normalized or service_path_normalized in exe_path:
                             matches = True
+                            matched_exe_info = exe_info
                             break
             
             if matches:
+                # Add port identifier and executable info to service for display
+                if matched_exe_info:
+                    service['matched_executable'] = matched_exe_info['executable_name']
+                    service['matched_port'] = matched_exe_info.get('port_identifier')
+                    # Use port from executable if service doesn't have one
+                    if not service.get('port_identifier') and matched_exe_info.get('port_identifier'):
+                        service['port_identifier'] = matched_exe_info.get('port_identifier')
                 services.append(service)
-                logger.info(f"✓ Added service '{service_name}' (filename: '{service_filename}', path: '{service_path}') to dashboard")
+                port_display = f" (port: {service.get('port_identifier')})" if service.get('port_identifier') else ""
+                logger.info(f"✓ Added service '{service_name}'{port_display} (filename: '{service_filename}', path: '{service_path}') to dashboard")
             else:
-                logger.info(f"✗ Service '{service_name}' (filename: '{service_filename}', path: '{service_path}') did not match any executable in folder")
+                port_display = f" (port: {service_port})" if service_port else ""
+                logger.info(f"✗ Service '{service_name}'{port_display} (filename: '{service_filename}', path: '{service_path}') did not match any executable in folder")
                 # Log available executable names for debugging
                 if folder_executables_map:
-                    available_names = [f"{name} ({info.get('executable_name')})" for name, info in list(folder_executables_map.items())[:10]]
+                    available_names = [f"{name} ({info.get('executable_name')}, port: {info.get('port_identifier') or 'none'})" for name, info in list(folder_executables_map.items())[:10]]
                     logger.debug(f"  Available executables: {available_names}")
         
         logger.info(f"Filtered to {len(services)} services matching executables in folder '{jar_folder_path}'")

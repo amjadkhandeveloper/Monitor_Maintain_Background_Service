@@ -88,6 +88,66 @@ class ServiceMonitor:
             return os.path.basename(service_path)
         return "Unknown"
     
+    def _extract_port_or_identifier(self, filename):
+        """
+        Extract port number or identifier from filename.
+        Examples:
+        - MyApp_8080.exe -> 8080
+        - MyApp-8081.jar -> 8081
+        - MyApp_Port8082.exe -> 8082
+        - MyApp.exe -> None
+        """
+        if not filename:
+            return None
+        
+        import re
+        # Try to find port number patterns: _8080, -8080, Port8080, etc.
+        patterns = [
+            r'_(\d+)',           # _8080
+            r'-(\d+)',           # -8080
+            r'Port(\d+)',        # Port8080
+            r'port(\d+)',        # port8080
+            r'(\d+)',            # Any number (last resort)
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, filename, re.IGNORECASE)
+            if match:
+                port = match.group(1)
+                # Only return if it looks like a port (reasonable range)
+                if port.isdigit() and 1 <= int(port) <= 65535:
+                    return port
+        
+        return None
+    
+    def _extract_port_from_cmdline(self, cmdline):
+        """
+        Extract port number from command line arguments.
+        Looks for common port patterns: --port=8080, -p 8080, --server.port=8080, etc.
+        """
+        if not cmdline:
+            return None
+        
+        import re
+        port_patterns = [
+            r'--port[=:](\d+)',
+            r'-p\s+(\d+)',
+            r'--server\.port[=:](\d+)',
+            r'port[=:](\d+)',
+            r'PORT[=:](\d+)',
+        ]
+        
+        cmdline_str = ' '.join(cmdline) if isinstance(cmdline, list) else str(cmdline)
+        
+        for pattern in port_patterns:
+            match = re.search(pattern, cmdline_str, re.IGNORECASE)
+            if match:
+                port = match.group(1)
+                if port.isdigit() and 1 <= int(port) <= 65535:
+                    return port
+        
+        return None
+    
     def _get_file_type(self, file_path):
         """Get file type based on extension"""
         if not file_path:
@@ -119,6 +179,20 @@ class ServiceMonitor:
                         # proc.info contains 'name' when using process_iter with 'name' in attrs
                         process_name = proc.info.get('name', '') if proc.info else ''
                         
+                        # Get command line for port extraction
+                        try:
+                            cmdline = proc.cmdline()
+                            cmdline_str = ' '.join(cmdline) if cmdline else ''
+                        except (psutil.AccessDenied, psutil.NoSuchProcess):
+                            cmdline = []
+                            cmdline_str = ''
+                        
+                        # Extract port/identifier from filename and command line
+                        port_from_filename = self._extract_port_or_identifier(service_name)
+                        port_from_cmdline = self._extract_port_from_cmdline(cmdline)
+                        # Use port from filename first, then cmdline
+                        port_identifier = port_from_filename or port_from_cmdline
+                        
                         # Get CPU and memory utilization
                         cpu_percent = proc.cpu_percent(interval=0.1)
                         memory_info = proc.memory_info()
@@ -144,7 +218,9 @@ class ServiceMonitor:
                             'memory_mb': round(memory_mb, 2),
                             'uptime_seconds': int(uptime.total_seconds()),
                             'uptime_formatted': str(uptime).split('.')[0],  # Remove microseconds
-                            'start_time': create_time.strftime('%Y-%m-%d %H:%M:%S')
+                            'start_time': create_time.strftime('%Y-%m-%d %H:%M:%S'),
+                            'port_identifier': port_identifier,  # Port number or identifier (e.g., "8080")
+                            'cmdline': cmdline_str  # Full command line for debugging/matching
                         }
                         
                         services.append(service_info)
