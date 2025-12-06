@@ -116,7 +116,8 @@ class ServiceMonitor:
                         file_type = self._get_file_type(service_path)
                         
                         # Get the actual process name (as shown in Task Manager)
-                        process_name = proc.info.get('name', '') or proc.name() if hasattr(proc, 'name') else ''
+                        # proc.info contains 'name' when using process_iter with 'name' in attrs
+                        process_name = proc.info.get('name', '') if proc.info else ''
                         
                         # Get CPU and memory utilization
                         cpu_percent = proc.cpu_percent(interval=0.1)
@@ -168,7 +169,10 @@ class ServiceMonitor:
             file_type = self._get_file_type(service_path)
             
             # Get the actual process name (as shown in Task Manager)
-            process_name = proc.name() if hasattr(proc, 'name') else ''
+            try:
+                process_name = proc.name()
+            except (psutil.NoSuchProcess, AttributeError):
+                process_name = ''
             
             # Get comprehensive process information
             cpu_percent = proc.cpu_percent(interval=0.1)
