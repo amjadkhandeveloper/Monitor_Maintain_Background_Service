@@ -17,12 +17,13 @@ A Python-based web application for monitoring and controlling services (JAR, EXE
   - Number of threads
   - Network connections
   - Command line arguments
-- 🎨 **Modern Web Dashboard**: Beautiful, responsive web interface
+- 🎨 **Modern Web Dashboard**: Beautiful, responsive web interface with compact design for better visibility
 - ⚡ **Smart Auto-Refresh**: Dashboard refreshes every 20 seconds (pauses when editing)
 - 🔄 **Auto-Restart Feature**: Automatically restart services based on CPU, memory, or MSMQ queue thresholds
 - 📁 **Subfolder Support**: Supports organized folder structure where each subfolder contains its matching executable
 - 🔗 **MSMQ Queue Monitoring (Windows)**: Automatically matches MSMQ queue names to folder names and monitors message counts
 - 💾 **Persistent Storage**: All configurations saved to `monitor_config.json` and persist across restarts
+- 🚀 **Production-Ready**: Debug mode disabled by default, configurable via environment variables
 
 ## Requirements
 
@@ -126,7 +127,7 @@ A Python-based web application for monitoring and controlling services (JAR, EXE
    - **Enable Auto-Restart**: Toggle auto-restart for any service
    - **Set CPU Threshold**: Configure when auto-restart should trigger (default: 80%)
    - **Set Memory Threshold**: Configure memory limit for auto-restart (default: 1000 MB)
-   - **Set Queue Threshold**: Configure MSMQ queue message limit for auto-restart (default: 10,000 messages, Windows only)
+   - **Set Queue Threshold**: Configure MSMQ queue message limit for auto-restart (default: 1,000 messages, Windows only)
    - **Automatic Monitoring**: Services are checked every 30 seconds for high CPU, memory, or queue message count
 
 ## Important: Detached Process Execution
@@ -198,6 +199,12 @@ See `STORAGE_INFO.md` for more details about configuration storage.
 
 ## Dashboard Features
 
+### Compact Design
+- **Space-Efficient Layout**: Optimized card design allows more services to be visible on screen
+- **Responsive Grid**: Automatically adjusts columns based on screen size (minimum 320px per card)
+- **Reduced Spacing**: Compact padding and margins for better information density
+- **Scalable**: Efficiently handles large numbers of services without overwhelming the interface
+
 ### Smart Auto-Refresh
 - Dashboard refreshes every **20 seconds** (configurable)
 - **Automatically pauses** when you're editing input fields
@@ -215,6 +222,7 @@ See `STORAGE_INFO.md` for more details about configuration storage.
 - CPU usage bars (red if > 80%)
 - Memory usage bars (red if > 1GB)
 - Auto-restart status indicators
+- Compact progress bars and status displays
 
 ## API Endpoints
 
@@ -266,7 +274,33 @@ The application provides REST API endpoints for programmatic access:
 - Verify file permissions in the application directory
 - Check Flask app logs for configuration save errors
 
-## Security Notes
+## Production Deployment
+
+### Production Configuration
+
+The application is **production-ready** with the following features:
+
+- **Debug Mode**: Disabled by default for security
+  - To enable debug mode (development only): `export FLASK_DEBUG=true`
+  - Default: `FLASK_DEBUG=false` (production mode)
+
+- **Environment Variables**:
+  ```bash
+  # Required for production security
+  export FLASK_SECRET_KEY='your-secret-key-here'
+  
+  # Optional: Enable debug mode (development only)
+  export FLASK_DEBUG=false  # Already default
+  ```
+
+- **Deployment Steps**:
+  1. Pull the latest code from the `main` branch
+  2. Install dependencies: `pip3 install -r requirements.txt`
+  3. Set environment variables (see above)
+  4. Start the application: `python3 app.py`
+  5. Access the dashboard at `http://localhost:5001`
+
+### Security Notes
 
 - This application runs on `0.0.0.0:5001` by default (port 5001 to avoid macOS AirPlay Receiver conflict), making it accessible from other machines on your network
 - **IMPORTANT**: Set the `FLASK_SECRET_KEY` environment variable for production use:
@@ -277,13 +311,15 @@ The application provides REST API endpoints for programmatic access:
 - Be cautious when exposing this service on public networks
 - Never commit sensitive information like API keys, tokens, or passwords to the repository
 - The `monitor_config.json` file is excluded from Git (contains local settings)
+- Debug mode is disabled by default - only enable for development
 
 ## File Structure
 
 ```
 ProcessProgram/
-├── app.py                 # Main Flask application
+├── app.py                 # Main Flask application (production-ready)
 ├── service_monitor.py     # Service monitoring and control logic
+├── msmq_monitor.py        # MSMQ queue monitoring (Windows only)
 ├── config_storage.py      # Persistent configuration storage
 ├── constants.py           # ⚙️ DEFAULT VALUES - Change queue threshold here!
 ├── requirements.txt       # Python dependencies
@@ -291,7 +327,7 @@ ProcessProgram/
 ├── STORAGE_INFO.md       # Configuration storage documentation
 ├── monitor_config.json   # Persistent configuration (created automatically)
 ├── templates/
-│   └── dashboard.html     # Web dashboard UI
+│   └── dashboard.html     # Web dashboard UI (compact design)
 ├── start_monitor.sh      # macOS/Linux startup script
 └── start_monitor.bat      # Windows startup script
 ```
@@ -301,9 +337,9 @@ ProcessProgram/
 **To change the default MSMQ queue threshold (the number that triggers auto-restart):**
 
 1. **Open `constants.py` file**
-2. **Find this line** (around line 13):
+2. **Find this line** (around line 23):
    ```python
-   DEFAULT_QUEUE_THRESHOLD = 10000  # Default MSMQ queue message threshold
+   DEFAULT_QUEUE_THRESHOLD = 1000  # Default MSMQ queue message threshold
    ```
 3. **Change the number** to your desired value, for example:
    ```python
@@ -313,6 +349,7 @@ ProcessProgram/
 5. **Restart the application** - The new value will be used for all new services
 
 **Note:** 
+- Current default: **1,000 messages** (changed from 10,000 for better responsiveness)
 - This value is used as the default for new services
 - Individual services can still override this through the dashboard UI
 - Changes in `constants.py` only affect new services; existing services keep their configured values
