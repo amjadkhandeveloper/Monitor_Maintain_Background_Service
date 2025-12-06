@@ -115,6 +115,9 @@ class ServiceMonitor:
                         service_name = self._get_service_name(service_path)
                         file_type = self._get_file_type(service_path)
                         
+                        # Get the actual process name (as shown in Task Manager)
+                        process_name = proc.info.get('name', '') or proc.name() if hasattr(proc, 'name') else ''
+                        
                         # Get CPU and memory utilization
                         cpu_percent = proc.cpu_percent(interval=0.1)
                         memory_info = proc.memory_info()
@@ -131,6 +134,7 @@ class ServiceMonitor:
                             'pid': proc.pid,
                             'service_name': service_name,
                             'jar_name': service_name,  # Keep for backward compatibility
+                            'process_name': process_name,  # Actual process name (e.g., "CorrelatorMax.exe")
                             'service_path': service_path or 'Unknown',
                             'jar_path': service_path or 'Unknown',  # Keep for backward compatibility
                             'file_type': file_type,
@@ -162,6 +166,9 @@ class ServiceMonitor:
             service_path = self._get_service_path(proc)
             service_name = self._get_service_name(service_path)
             file_type = self._get_file_type(service_path)
+            
+            # Get the actual process name (as shown in Task Manager)
+            process_name = proc.name() if hasattr(proc, 'name') else ''
             
             # Get comprehensive process information
             cpu_percent = proc.cpu_percent(interval=0.1)
@@ -198,6 +205,7 @@ class ServiceMonitor:
                 'pid': pid,
                 'service_name': service_name,
                 'jar_name': service_name,  # Keep for backward compatibility
+                'process_name': process_name,  # Actual process name (e.g., "CorrelatorMax.exe")
                 'service_path': service_path or 'Unknown',
                 'jar_path': service_path or 'Unknown',  # Keep for backward compatibility
                 'file_type': file_type,

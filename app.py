@@ -260,6 +260,7 @@ def get_services():
         for service in all_services:
             service_name = service.get('service_name') or service.get('jar_name', 'Unknown')
             service_path = service.get('service_path') or service.get('jar_path', '')
+            process_name = service.get('process_name', '')  # Actual process name (e.g., "CorrelatorMax.exe")
             
             # Extract just the filename from service_path (if it's a full path)
             service_filename = service_name
@@ -270,11 +271,18 @@ def get_services():
                     if service_filename_from_path:
                         service_filename = service_filename_from_path
             
+            # Use process_name if available (this is what Task Manager shows)
+            if process_name:
+                # Process name might be the most accurate (e.g., "CorrelatorMax.exe")
+                service_filename = process_name
+            
             # Normalize for comparison
             service_filename_lower = service_filename.lower()
             service_filename_no_ext = os.path.splitext(service_filename_lower)[0]
             service_name_lower = service_name.lower()
             service_name_no_ext = os.path.splitext(service_name_lower)[0]
+            process_name_lower = process_name.lower() if process_name else ''
+            process_name_no_ext = os.path.splitext(process_name_lower)[0] if process_name else ''
             service_path_normalized = os.path.normpath(service_path).lower() if service_path else ''
             
             # Match by executable filename (regardless of execution path):
@@ -297,7 +305,7 @@ def get_services():
                 shortcut_name_no_ext = os.path.splitext(shortcut_name_lower)[0]
                 
                 # Match by filename (most important - works regardless of execution path)
-                # Try multiple matching strategies including shortcut names
+                # Try multiple matching strategies including shortcut names and process names
                 if (service_filename_lower == exe_filename_lower or
                     service_filename_no_ext == exe_filename_no_ext or
                     service_filename_no_ext == exe_name_lower or
@@ -307,9 +315,15 @@ def get_services():
                     service_name_no_ext == exe_name_lower or
                     service_name_no_ext == shortcut_name_no_ext or
                     service_filename_lower == shortcut_name_lower or
-                    service_name_lower == shortcut_name_lower):
+                    service_name_lower == shortcut_name_lower or
+                    # Match by process name (what Task Manager shows)
+                    (process_name_lower and (process_name_lower == exe_filename_lower or
+                                             process_name_no_ext == exe_filename_no_ext or
+                                             process_name_no_ext == exe_name_lower or
+                                             process_name_no_ext == shortcut_name_no_ext or
+                                             process_name_lower == shortcut_name_lower))):
                     matches = True
-                    logger.info(f"✓ Matched service '{service_name}' (filename: '{service_filename}') to executable '{exe_filename}' (shortcut: '{shortcut_name}') in folder")
+                    logger.info(f"✓ Matched service '{service_name}' (process: '{process_name}', filename: '{service_filename}') to executable '{exe_filename}' (shortcut: '{shortcut_name}') in folder")
                     break
             
             # Also check path match (for services executed from the configured folder)
