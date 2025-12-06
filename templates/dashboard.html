@@ -881,7 +881,10 @@
             const container = document.getElementById('jarListContainer');
             
             if (!currentFolderPath) {
-                container.innerHTML = '<div class="no-jars">Please set folder path to view executable files</div>';
+                // Only show message if container is empty or already showing this message
+                if (!container.innerHTML || container.innerHTML.includes('Please set folder path')) {
+                    container.innerHTML = '<div class="no-jars">Please set folder path to view executable files</div>';
+                }
                 return;
             }
 
@@ -900,10 +903,21 @@
                         displayExecutables(directFiles, subfolders);
                     }
                 } else {
-                    container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    // Only show error if we don't already have content displayed
+                    const currentContent = container.innerHTML;
+                    if (!currentContent || currentContent.includes('Error') || currentContent.includes('No executable')) {
+                        container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    }
+                    // Otherwise keep existing content to prevent flickering
                 }
             } catch (error) {
-                container.innerHTML = `<div class="error">Error loading executable files: ${error.message}</div>`;
+                // Only show error if we don't already have content displayed
+                const currentContent = container.innerHTML;
+                if (!currentContent || currentContent.includes('Error') || currentContent.includes('No executable')) {
+                    container.innerHTML = `<div class="error">Error loading executable files: ${error.message}</div>`;
+                }
+                // Otherwise keep existing content to prevent flickering
+                console.error('Error loading jar files:', error);
             }
         }
 
