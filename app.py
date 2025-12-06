@@ -323,19 +323,32 @@ def get_services():
                     queue_simple_name_no_ext = os.path.splitext(queue_simple_name)[0].lower()
                     
                     # Match queue name to executable name (case-insensitive)
+                    # For shortcuts, match by both shortcut name and target executable name
                     matched_executable = None
                     for exe_name, exe_info in folder_executables_map.items():
                         exe_name_lower = exe_name.lower()
                         exe_name_no_ext = os.path.splitext(exe_info['executable_name'])[0].lower()
                         exe_file_name = exe_info['executable_name']
                         
-                        # Try multiple matching strategies
+                        # Get shortcut name if this is a shortcut (for better matching)
+                        shortcut_name = None
+                        if 'shortcut_path' in exe_info:
+                            shortcut_path = exe_info.get('shortcut_path', '')
+                            if shortcut_path:
+                                shortcut_filename = os.path.basename(shortcut_path)
+                                shortcut_name = os.path.splitext(shortcut_filename)[0].lower()
+                        
+                        # Try multiple matching strategies:
+                        # 1. Match by executable name (key in map) - works for shortcuts
+                        # 2. Match by target executable filename
+                        # 3. Match by shortcut name (if it's a shortcut)
                         if (exe_name_lower == queue_simple_name_no_ext or 
                             exe_name_no_ext == queue_simple_name_no_ext or
                             exe_file_name.lower() == queue_simple_name.lower() or
-                            os.path.splitext(exe_file_name)[0].lower() == queue_simple_name_no_ext):
+                            os.path.splitext(exe_file_name)[0].lower() == queue_simple_name_no_ext or
+                            (shortcut_name and shortcut_name == queue_simple_name_no_ext)):
                             matched_executable = exe_info
-                            logger.debug(f"Matched queue '{queue_name}' to executable '{exe_file_name}'")
+                            logger.debug(f"Matched queue '{queue_name}' (simple: '{queue_simple_name_no_ext}') to executable '{exe_file_name}' (shortcut name: '{exe_name}')")
                             break
                     
                     if matched_executable:
