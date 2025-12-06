@@ -904,25 +904,32 @@
                     const subfolders = data.subfolders || [];
                     
                     if (directFiles.length === 0 && subfolders.length === 0) {
-                        container.innerHTML = '<div class="no-jars">No executable files found</div>';
+                        // Only update if we're showing an empty state or error
+                        const currentContent = container.innerHTML;
+                        if (!currentContent || currentContent.includes('No executable') || currentContent.includes('Error') || currentContent.includes('Please set')) {
+                            container.innerHTML = '<div class="no-jars">No executable files found</div>';
+                        }
+                        // Otherwise keep existing content to prevent flickering/disappearing
                     } else {
+                        // Always update when we have files to show
                         displayExecutables(directFiles, subfolders);
                     }
                 } else {
                     // Only show error if we don't already have content displayed
                     const currentContent = container.innerHTML;
-                    if (!currentContent || currentContent.includes('Error') || currentContent.includes('No executable')) {
+                    if (!currentContent || currentContent.includes('Error') || currentContent.includes('No executable') || currentContent.includes('Please set')) {
                         container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
                     }
                     // Otherwise keep existing content to prevent flickering
+                    console.error('Error loading jar files:', data.error);
                 }
             } catch (error) {
                 // Only show error if we don't already have content displayed
                 const currentContent = container.innerHTML;
-                if (!currentContent || currentContent.includes('Error') || currentContent.includes('No executable')) {
+                if (!currentContent || currentContent.includes('Error') || currentContent.includes('No executable') || currentContent.includes('Please set')) {
                     container.innerHTML = `<div class="error">Error loading executable files: ${error.message}</div>`;
                 }
-                // Otherwise keep existing content to prevent flickering
+                // Otherwise keep existing content to prevent flickering/disappearing
                 console.error('Error loading jar files:', error);
             }
         }
