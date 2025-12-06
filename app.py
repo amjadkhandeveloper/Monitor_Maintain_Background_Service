@@ -314,9 +314,13 @@ def get_services():
             
             if matches:
                 services.append(service)
-                logger.debug(f"✓ Matched service '{service_name}' (filename: '{service_filename}', path: '{service_path}')")
+                logger.info(f"✓ Added service '{service_name}' (filename: '{service_filename}', path: '{service_path}') to dashboard")
             else:
-                logger.debug(f"✗ Service '{service_name}' (filename: '{service_filename}', path: '{service_path}') did not match any executable in folder")
+                logger.info(f"✗ Service '{service_name}' (filename: '{service_filename}', path: '{service_path}') did not match any executable in folder")
+                # Log available executable names for debugging
+                if folder_executables_map:
+                    available_names = [f"{name} ({info.get('executable_name')})" for name, info in list(folder_executables_map.items())[:10]]
+                    logger.debug(f"  Available executables: {available_names}")
         
         logger.info(f"Filtered to {len(services)} services matching executables in folder '{jar_folder_path}'")
         
